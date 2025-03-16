@@ -12,6 +12,9 @@
 
 #define OSPI_MAX_RX_COUNT 256
 
+/*128 : is a hack to support for 8 bit DFS */
+#define OSPI_MAX_TX_COUNT 128
+
 #define OSPI_FLASH_CMD_BUF 261 /* 256 + CMD (1) + ADDRESS (4) */
 
 #define OSPI_FLASH_CMD_READ_STATUS_ERR (0x02)

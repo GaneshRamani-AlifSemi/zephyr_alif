@@ -198,7 +198,7 @@ static int flash_alif_ospi_read(const struct device *dev, off_t address, void *b
 				size_t length)
 {
 	uint32_t cmd[4], data_cnt, event;
-	uint16_t *data_ptr;
+	uint8_t *data_ptr;
 	int32_t cnt;
 	int32_t ret;
 
@@ -220,7 +220,7 @@ static int flash_alif_ospi_read(const struct device *dev, off_t address, void *b
 	}
 
 	cnt = length;
-	data_ptr = (uint16_t *)buffer;
+	data_ptr = (uint8_t *)buffer;
 	dev_data->trans_conf.wait_cycles = 0;
 	dev_data->trans_conf.addr_len = 0;
 
@@ -241,7 +241,7 @@ static int flash_alif_ospi_read(const struct device *dev, off_t address, void *b
 
 	dev_data->trans_conf.wait_cycles = 16;
 	dev_data->trans_conf.addr_len = OSPI_ADDR_LENGTH_32_BITS;
-	dev_data->trans_conf.frame_size = 16;
+	dev_data->trans_conf.frame_size = 8;
 
 	/* Prepare Interface and update Configuration */
 	ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
@@ -295,8 +295,7 @@ static int flash_alif_ospi_read(const struct device *dev, off_t address, void *b
 			break;
 		}
 
-		/* For 16 bit frames, update address by data_cnt * 2*/
-		address += (data_cnt * 2);
+		address += data_cnt;
 		length -= data_cnt;
 		data_ptr += data_cnt;
 	}
@@ -308,7 +307,7 @@ static int flash_alif_ospi_read(const struct device *dev, off_t address, void *b
 static int flash_alif_ospi_write(const struct device *dev, off_t address, const void *buffer,
 				 size_t length)
 {
-	const uint16_t *data_ptr;
+	const uint8_t *data_ptr;
 	int32_t status, ret;
 	uint32_t event, data_cnt, index, i, cnt, data_i = 0;
 	uint8_t val;
@@ -349,7 +348,7 @@ static int flash_alif_ospi_write(const struct device *dev, off_t address, const 
 			break;
 		}
 
-		data_cnt = (OSPI_MAX_RX_COUNT - (address % OSPI_MAX_RX_COUNT)) >> 1;
+		data_cnt = (OSPI_MAX_TX_COUNT - (address % OSPI_MAX_TX_COUNT));
 		if (data_cnt > cnt) {
 			data_cnt = cnt;
 		}
@@ -366,7 +365,7 @@ static int flash_alif_ospi_write(const struct device *dev, off_t address, const 
 
 		dev_data->trans_conf.wait_cycles = 0;
 		dev_data->trans_conf.addr_len = OSPI_ADDR_LENGTH_32_BITS;
-		dev_data->trans_conf.frame_size = 16;
+		dev_data->trans_conf.frame_size = 8;
 
 		ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
 		if (ret != 0) {
@@ -405,10 +404,7 @@ static int flash_alif_ospi_write(const struct device *dev, off_t address, const 
 			break;
 		}
 
-		/* For 16 bit data frames, increment the byte address
-		 * with 2 * data_cnt programmed
-		 */
-		address += (data_cnt * 2);
+		address += data_cnt;
 		cnt -= data_cnt;
 
 		ret = set_cs_pin(dev_data->ospi_handle, SLAVE_DE_ACTIVATE);
