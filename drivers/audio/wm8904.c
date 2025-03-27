@@ -423,9 +423,11 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 
 	wm8904_soft_reset(dev);
 
+#if 0	//Route selection not available in v3.7
 	if (cfg->dai_route == AUDIO_ROUTE_BYPASS) {
 		return 0;
 	}
+#endif
 
 	/* MCLK_INV=0, SYSCLK_SRC=0, TOCLK_RATE=0, OPCLK_ENA=1,
 	 * CLK_SYS_ENA=1, CLK_DSP_ENA=1, TOCLK_ENA=1
@@ -488,6 +490,7 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 	wm8904_update_reg(dev, WM8904_REG_CLK_RATES_2, (uint16_t)(1UL << 14U),
 			  (uint16_t)(dev_cfg->clock_source));
 
+#if 0
 	if (dev_cfg->clock_source == 0) {
 		int err = clock_control_on(dev_cfg->mclk_dev, dev_cfg->mclk_name);
 
@@ -501,7 +504,7 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 			LOG_ERR("MCLK clock source freq acquire fail: %d", err);
 		}
 	}
-
+#endif
 	wm8904_audio_fmt_config(dev, &cfg->dai_cfg, cfg->mclk_freq);
 
 	if ((cfg->dai_cfg.i2s.options & I2S_OPT_FRAME_CLK_MASTER) == I2S_OPT_FRAME_CLK_MASTER) {
@@ -512,6 +515,9 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 		wm8904_update_reg(dev, WM8904_REG_AUDIO_IF_3, (uint16_t)(1UL << 11U), 0U);
 	}
 
+	wm8904_configure_output(dev);
+
+#if 0   //Route selection not available in v3.7
 	switch (cfg->dai_route) {
 	case AUDIO_ROUTE_PLAYBACK:
 		wm8904_configure_output(dev);
@@ -529,7 +535,7 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 	default:
 		break;
 	}
-
+#endif
 	return 0;
 }
 
@@ -672,10 +678,12 @@ static const struct audio_codec_api wm8904_driver_api = {
 	static const struct wm8904_driver_config wm8904_device_config_##n = {                      \
 		.i2c = I2C_DT_SPEC_INST_GET(n),                                                    \
 		.clock_source = DT_INST_PROP_OR(n, clk_source, 0),                                 \
+#if 0
 		.mclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(n, mclk)),                   \
 		.mclk_name = (clock_control_subsys_t)DT_INST_CLOCKS_CELL_BY_NAME(n, mclk, name)};  \
-                                                                                                   \
+#endif
+												\
 	DEVICE_DT_INST_DEFINE(n, NULL, NULL, NULL, &wm8904_device_config_##n,        \
 			      POST_KERNEL, CONFIG_AUDIO_CODEC_INIT_PRIORITY, &wm8904_driver_api);
 
-DT_INST_FOREACH_STATUS_OKAY(WM8904_INIT) 
+DT_INST_FOREACH_STATUS_OKAY(WM8904_INIT)

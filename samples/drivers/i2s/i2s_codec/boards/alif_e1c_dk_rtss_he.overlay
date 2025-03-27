@@ -1,0 +1,19 @@
+/*
+ * Copyright (c) 2024 Alif Semiconductor.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/*
+ * I2S_0 => Speaker Output
+ * I2S_2 => Mic Input
+ */
+
+/ {
+	aliases {
+		i2s-codec-tx = &i2s0;
+	};
+};
+
+&i2s0 {
+	status = "okay";
+};

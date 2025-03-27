@@ -53,3 +53,17 @@
 		status = "okay";
 	};
 };
+
+&i2c1 {
+	status = "okay";
+
+	audio_codec: wm8904@0 {
+		compatible = "wolfson,wm8904";
+		reg = <0x1a 0 0>;
+
+		clock-source = "MCLK";
+
+		//clocks = <&clkctl0 MCUX_AUDIO_MCLK>;
+		//clock-names = "mclk";
+	};
+};

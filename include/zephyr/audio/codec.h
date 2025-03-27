@@ -56,8 +56,12 @@ typedef enum {
  * Digital Audio Interface (DAI) type
  */
 typedef enum {
-	AUDIO_DAI_TYPE_I2S,	/**< I2S Interface */
-	AUDIO_DAI_TYPE_INVALID,	/**< Other interfaces can be added here */
+	AUDIO_DAI_TYPE_I2S,		/**< I2S Interface */
+	AUDIO_DAI_TYPE_LEFT_JUSTIFIED,	/**< I2S Interface, left justified */
+	AUDIO_DAI_TYPE_RIGHT_JUSTIFIED,	/**< I2S Interface, right justified */
+	AUDIO_DAI_TYPE_PCMA,		/**< PCM Interface, variant A */
+	AUDIO_DAI_TYPE_PCMB,		/**< PCM Interface, variant B */
+	AUDIO_DAI_TYPE_INVALID,		/**< Other interfaces can be added here */
 } audio_dai_type_t;
 
 /**
@@ -66,6 +70,8 @@ typedef enum {
 typedef enum {
 	AUDIO_PROPERTY_OUTPUT_VOLUME,	/**< Output volume */
 	AUDIO_PROPERTY_OUTPUT_MUTE,	/**< Output mute/unmute */
+	AUDIO_PROPERTY_INPUT_VOLUME,	/**< Input volume */
+	AUDIO_PROPERTY_INPUT_MUTE	/**< Input mute/unmute */
 } audio_property_t;
 
 /**
@@ -81,6 +87,8 @@ typedef enum {
 	AUDIO_CHANNEL_REAR_CENTER,	/**< Rear center channel */
 	AUDIO_CHANNEL_SIDE_LEFT,	/**< Side left channel */
 	AUDIO_CHANNEL_SIDE_RIGHT,	/**< Side right channel */
+	AUDIO_CHANNEL_HEADPHONE_LEFT,   /**< Headphone left */
+	AUDIO_CHANNEL_HEADPHONE_RIGHT,  /**< Headphone right */
 	AUDIO_CHANNEL_ALL,		/**< All channels */
 } audio_channel_t;
 
@@ -158,6 +166,11 @@ struct audio_codec_api {
 	int (*clear_errors)(const struct device *dev);
 	int (*register_error_callback)(const struct device *dev,
 			 audio_codec_error_callback_t cb);
+	int (*route_input)(const struct device *dev, audio_channel_t channel,
+			 uint32_t input);
+	int (*route_output)(const struct device *dev, audio_channel_t channel,
+			 uint32_t output);
+
 };
 /**
  * @endcond
