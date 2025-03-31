@@ -57,7 +57,7 @@
 &i2c1 {
 	status = "okay";
 
-	audio_codec: wm8904@0 {
+	audio_codec: wm8904@1a {
 		compatible = "wolfson,wm8904";
 		reg = <0x1a 0 0>;
 

@@ -9,6 +9,8 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/drivers/i2s.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/audio/codec.h>
+
 #include <string.h>
 
 
@@ -20,7 +22,9 @@
 #define I2S_TX_NODE  DT_NODELABEL(i2s_tx)
 #endif
 
-#define SAMPLE_FREQUENCY    44100
+#define I2S_CODEC_TX  DT_ALIAS(i2s_codec_tx)
+
+#define SAMPLE_FREQUENCY    48000 //4100
 #define SAMPLE_BIT_WIDTH    16
 #define BYTES_PER_SAMPLE    sizeof(int16_t)
 #define NUMBER_OF_CHANNELS  2
@@ -248,7 +252,10 @@ int main(void)
 {
 	const struct device *const i2s_dev_rx = DEVICE_DT_GET(I2S_RX_NODE);
 	const struct device *const i2s_dev_tx = DEVICE_DT_GET(I2S_TX_NODE);
+	const struct device *const codec_dev = DEVICE_DT_GET(DT_NODELABEL(audio_codec));
+
 	struct i2s_config config;
+	struct audio_codec_cfg audio_cfg;
 
 	printk("I2S echo sample\n");
 
@@ -257,6 +264,7 @@ int main(void)
 		return 0;
 	}
 #endif
+
 
 	if (!init_buttons()) {
 		return 0;
@@ -271,6 +279,24 @@ int main(void)
 		printk("%s is not ready\n", i2s_dev_tx->name);
 		return 0;
 	}
+
+	if (!device_is_ready(codec_dev)) {
+		printk("%s is not ready\n", codec_dev->name);
+		return 0;
+	}
+
+
+	audio_cfg.dai_type = AUDIO_DAI_TYPE_I2S;
+	audio_cfg.dai_cfg.i2s.word_size = SAMPLE_BIT_WIDTH;
+	audio_cfg.dai_cfg.i2s.channels =  2;
+	audio_cfg.dai_cfg.i2s.format = I2S_FMT_DATA_FORMAT_I2S;
+	audio_cfg.dai_cfg.i2s.options = I2S_OPT_FRAME_CLK_MASTER;
+	audio_cfg.dai_cfg.i2s.frame_clk_freq = SAMPLE_FREQUENCY;
+	audio_cfg.dai_cfg.i2s.mem_slab = &mem_slab;
+	audio_cfg.dai_cfg.i2s.block_size = BLOCK_SIZE;
+	audio_codec_configure(codec_dev, &audio_cfg);
+	k_msleep(1000);
+
 
 	config.word_size = SAMPLE_BIT_WIDTH;
 	config.channels = NUMBER_OF_CHANNELS;

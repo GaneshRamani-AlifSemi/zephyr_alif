@@ -15,4 +15,3 @@ i2s_tx: &i2s0 {
 i2s_rx: &i2s2 {
 	status = "okay";
 };
-
