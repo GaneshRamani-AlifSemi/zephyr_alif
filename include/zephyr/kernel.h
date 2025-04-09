@@ -5141,7 +5141,7 @@ struct k_mem_slab {
  * @param slab_align Alignment of the memory slab's buffer (power of 2).
  */
 #define K_MEM_SLAB_DEFINE_STATIC(name, slab_block_size, slab_num_blocks, slab_align) \
-	static char __noinit_named(k_mem_slab_buf_##name) \
+         static char __alif_ns_section \
 	   __aligned(WB_UP(slab_align)) \
 	   _k_mem_slab_buf_##name[(slab_num_blocks) * WB_UP(slab_block_size)]; \
 	static STRUCT_SECTION_ITERABLE(k_mem_slab, name) = \
@@ -5421,9 +5421,8 @@ void k_heap_free(struct k_heap *h, void *mem) __attribute_nonnull(1);
  * @param bytes Size of memory region, in bytes
  */
 #define K_HEAP_DEFINE(name, bytes)				\
-	Z_HEAP_DEFINE_IN_SECT(name, bytes,			\
-			      __noinit_named(kheap_buf_##name))
-
+       Z_HEAP_DEFINE_IN_SECT(name, bytes,      __alif_ns_section)
+                          /*   __noinit_named(kheap_buf_##name)) */
 /**
  * @brief Define a static k_heap in uncached memory
  *

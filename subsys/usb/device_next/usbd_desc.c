@@ -84,15 +84,15 @@ static int usbd_get_sn_from_hwid(struct usbd_desc_node *const dn)
 	ssize_t min_len;
 
 	hwid_len = hwinfo_get_device_id(hwid, sizeof(hwid));
-	if (hwid_len < 0) {
+	/*if (hwid_len < 0) {
 		if (hwid_len == -ENOSYS) {
 			LOG_WRN("hwinfo not implemented");
 			return 0;
 		}
 
 		return hwid_len;
-	}
-
+	}*/ // mahesh commented
+	hwid_len = 16; //mahesh added
 	min_len = MIN(hwid_len, desc->bLength / 2);
 	for (size_t i = 0; i < min_len; i++) {
 		desc_data[i * 2] = hex[hwid[i] >> 4];

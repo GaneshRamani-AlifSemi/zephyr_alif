@@ -97,7 +97,7 @@ static int event_handler_bus_reset(struct usbd_contex *const uds_ctx)
 {
 	int ret;
 
-	LOG_WRN("Bus reset event");
+	//LOG_WRN("Bus reset event"); //mahesh commented
 
 	usbd_status_suspended(uds_ctx, false);
 	ret = udc_set_address(uds_ctx->dev, 0);
@@ -134,7 +134,7 @@ static ALWAYS_INLINE int usbd_event_handler(struct usbd_contex *const uds_ctx,
 		LOG_WRN("VBUS remove event");
 		break;
 	case UDC_EVT_VBUS_READY:
-		LOG_WRN("VBUS detected event");
+		//LOG_WRN("VBUS detected event");//mahesh commented
 		break;
 	case UDC_EVT_SUSPEND:
 		LOG_WRN("SUSPEND event");
@@ -150,7 +150,7 @@ static ALWAYS_INLINE int usbd_event_handler(struct usbd_contex *const uds_ctx,
 		usbd_class_bcast_event(uds_ctx, event);
 		break;
 	case UDC_EVT_RESET:
-		LOG_WRN("RESET event");
+		//LOG_WRN("RESET event"); //mahesh commented
 		ret = event_handler_bus_reset(uds_ctx);
 		break;
 	case UDC_EVT_EP_REQUEST:

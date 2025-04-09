@@ -18,6 +18,7 @@
 
 LOG_MODULE_DECLARE(sd, CONFIG_SD_LOG_LEVEL);
 
+uint8_t __alif_ns_section cmd_dma_buff[512] __aligned(512);
 static inline void sdmmc_decode_scr(struct sd_scr *scr,
 	uint32_t *raw_scr, uint8_t *version)
 {
@@ -158,7 +159,8 @@ static int sdmmc_read_scr(struct sd_card *card)
 	struct sd_scr card_scr;
 	int ret;
 	/* DMA onto stack is unsafe, so we use an internal card buffer */
-	uint32_t *scr = (uint32_t *)card->card_buffer;
+	memset(&cmd_dma_buff[0], 0, 512);
+	uint32_t *scr = (uint32_t *)&cmd_dma_buff[0];
 	uint32_t raw_scr[2];
 
 	ret = sdmmc_app_command(card, card->relative_addr);
@@ -200,6 +202,19 @@ static int sdmmc_read_scr(struct sd_card *card)
 		card->flags |= SD_CMD23_FLAG;
 	}
 	return 0;
+}
+
+/* Sets block count for SD card read*/
+static int sdmmc_set_blockcnt(struct sd_card *card, uint32_t block_cnt)
+{
+	struct sdhc_command cmd = {0};
+
+	cmd.opcode = SD_SET_BLOCK_COUNT;
+	cmd.arg = block_cnt;
+	cmd.timeout_ms = CONFIG_SD_CMD_TIMEOUT;
+	cmd.response_type =  (SD_RSP_TYPE_R1 | SD_SPI_RSP_TYPE_R1);
+
+	return sdhc_request(card->sdhc, &cmd, NULL);
 }
 
 /* Sets block length of SD card */
@@ -292,7 +307,7 @@ static int sdmmc_switch(struct sd_card *card, enum sd_switch_arg mode,
 	data.data = response;
 	data.timeout_ms = CONFIG_SD_DATA_TIMEOUT;
 
-	return sdhc_request(card->sdhc, &cmd, &data);
+	return sdhc_request(card->sdhc, &cmd, NULL);
 }
 
 static int sdmmc_read_switch(struct sd_card *card)
@@ -306,7 +321,7 @@ static int sdmmc_read_switch(struct sd_card *card)
 		return 0;
 	}
 	/* Use card internal buffer to read 64 byte switch data */
-	status = card->card_buffer;
+	status = &cmd_dma_buff[0];
 	/*
 	 * Setting switch to zero will read card's support values,
 	 * otherwise known as SD "check function"
@@ -363,7 +378,7 @@ static inline void sdmmc_select_bus_speed(struct sd_card *card)
 static int sdmmc_select_driver_type(struct sd_card *card)
 {
 	int ret = 0;
-	uint8_t *status = card->card_buffer;
+	uint8_t *status = &cmd_dma_buff[0];
 
 	/*
 	 * We will only attempt to use driver type C over the default of type B,
@@ -385,7 +400,7 @@ static int sdmmc_set_current_limit(struct sd_card *card)
 {
 	int ret;
 	int max_current = -1;
-	uint8_t *status = card->card_buffer;
+	uint8_t *status = &cmd_dma_buff[0];
 
 	if ((card->card_speed != SD_TIMING_SDR50) &&
 		(card->card_speed != SD_TIMING_SDR104) &&
@@ -426,7 +441,9 @@ static int sdmmc_set_bus_speed(struct sd_card *card)
 {
 	int ret;
 	int timing = 0;
-	uint8_t *status = card->card_buffer;
+	uint8_t *status = &cmd_dma_buff[0];
+
+	k_sleep(K_MSEC(1000));
 
 	switch (card->card_speed) {
 	/* Set bus clock speed */
@@ -534,7 +551,7 @@ static int sdmmc_init_hs(struct sd_card *card)
 		/* No high speed support. Leave card untouched */
 		return 0;
 	}
-	card->card_speed = SD_TIMING_SDR25;
+	card->card_speed = SD_TIMING_SDR12;
 	ret = sdmmc_set_bus_speed(card);
 	if (ret) {
 		LOG_ERR("Failed to switch card to HS mode");

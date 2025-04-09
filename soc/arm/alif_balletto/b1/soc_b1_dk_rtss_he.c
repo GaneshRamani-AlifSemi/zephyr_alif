@@ -102,7 +102,37 @@ static int balletto_b1_dk_rtss_he_init(void)
 #if DT_NODE_HAS_STATUS(DT_NODELABEL(rtc1), okay)
 	sys_write32(0x1, LPRTC1_CLK_EN);
 #endif
+	
+	/* SD Clock */
+	if (IS_ENABLED(CONFIG_INTEL_EMMC_HOST)) {
+		/* Enable CFG (100 MHz and 20MHz) clock.*/
+		sys_set_bits(CGU_CLK_ENA, BIT(21) | BIT(22));
+		sys_set_bits(EXPMST_PERIPH_CLK_EN, BIT(16));
+	}
+	/****************    enable USB stuff  **********************************/
+		/* enable CGU clock as 20MHZ  */
+		unsigned int data;
+		data = sys_read32(0x1A602014);
+		data |= CLK_ENA_CLK20M;
+		sys_write32(data, 0x1A602014);
 
+		/* Enable peripheral clock  */
+		data = sys_read32(0x4903F00C);
+		data |= PERIPH_CLK_ENA_USB_CKEN | PERIPH_CLK_ENA_SDA_CKEN;
+		sys_write32(data, 0x4903F00C);
+
+		/* Enable phy pwr mask and disable Phy isolation */
+		data = sys_read32(0x1A609008);
+		data &= ~PWR_CTRL_UPHY_PWR_MASK;
+		data &= ~PWR_CTRL_UPHY_ISO;
+
+		sys_write32(data, 0x1A609008);
+
+		/* USB power on reset clear   */
+		data = sys_read32(0x4903F0AC);
+		data &= ~USB_CTRL2_PHY_POR;
+		sys_write32(data, 0x4903F0AC);
+		/* ********************* End *****************************************/
 	/*Clock : OSPI */
 	if (IS_ENABLED(CONFIG_OSPI)) {
 		sys_write32(0x1, EXPSLV_OSPI_CTRL);

@@ -13,7 +13,7 @@
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(usbd_sample_config);
 
-#define ZEPHYR_PROJECT_USB_VID		0x2fe3
+#define ZEPHYR_PROJECT_USB_VID		0x0525
 
 USBD_DEVICE_DEFINE(sample_usbd,
 		   DEVICE_DT_GET(DT_NODELABEL(zephyr_udc0)),

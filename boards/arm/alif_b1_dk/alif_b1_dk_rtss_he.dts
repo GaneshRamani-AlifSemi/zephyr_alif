@@ -54,6 +54,10 @@
 	status = "okay";
 };
 
+zephyr_udc0: &dwc3_hs {
+    status = "okay";
+    };
+
 &uart_hci {
 	clock-frequency = <160000000>;
 	dlf = <0>;
@@ -75,4 +79,18 @@
 		pinctrl-names = "default";
 		status = "okay";
 	};
+};
+
+&i2c1 {
+       status = "okay";
+
+       audio_codec: wm8904@1a {
+               compatible = "wolfson,wm8904";
+               reg = <0x1a 0 0>;
+
+               clock-source = "MCLK";
+
+               //clocks = <&clkctl0 MCUX_AUDIO_MCLK>;
+               //clock-names = "mclk";
+       };
 };

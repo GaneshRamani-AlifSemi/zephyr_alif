@@ -92,6 +92,15 @@
 #define CAN1_FD_CTRL_REG          EXPSLV_CANFD_CTRL
 #define CAN1_CTRL_FD_ENA_POS      26U
 
+
+/* clock enable for USB  */
+#define PERIPH_CLK_ENA_USB_CKEN             (1U << 20) /* Enable clock supply for USB */
+#define PERIPH_CLK_ENA_SDA_CKEN             (1U << 16) /* Enable clock supply for USB */
+#define CLK_ENA_CLK20M                      (1U << 22) /* Enable USB and 10M_CLK */
+#define PWR_CTRL_UPHY_PWR_MASK              (1U << 16)   /* Mask off the power supply for USB PHY */
+#define PWR_CTRL_UPHY_ISO                   (1U << 17)   /* Enable isolation for USB PHY */
+#define USB_CTRL2_PHY_POR                   (1U << 8)
+
 /*
  * CMSIS IRQn_Type enum is broken relative to ARM GNU compiler.
  *

@@ -12,11 +12,13 @@
 #include <zephyr/sd/sd_spec.h>
 #include <zephyr/cache.h>
 #include "intel_emmc_host.h"
+#include "soc_memory_map.h"
 #if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
 BUILD_ASSERT(IS_ENABLED(CONFIG_PCIE), "DT need CONFIG_PCIE");
 #include <zephyr/drivers/pcie/pcie.h>
 #endif
 
+#include <zephyr/drivers/pinctrl.h>
 #include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(emmc_hc, CONFIG_SDHC_LOG_LEVEL);
 
@@ -34,6 +36,7 @@ struct emmc_config {
 #else
 	DEVICE_MMIO_ROM;
 #endif
+	const struct pinctrl_dev_config *pincfg;
 	emmc_isr_cb_t config_func;
 	uint32_t max_bus_freq;
 	uint32_t min_bus_freq;
@@ -50,7 +53,7 @@ struct emmc_data {
 	struct sdhc_io host_io;
 	struct k_sem lock;
 	struct k_event irq_event;
-	uint64_t desc_table[ADMA_DESC_SIZE];
+	uint64_t desc_table[ADMA_DESC_SIZE] __aligned(512);
 	struct sdhc_host_props props;
 	bool card_present;
 };
@@ -415,7 +418,7 @@ static int emmc_dma_init(const struct device *dev, struct sdhc_data *data, bool 
 	}
 
 	if (IS_ENABLED(CONFIG_INTEL_EMMC_HOST_ADMA)) {
-		uint8_t *buff = data->data;
+		uint8_t *buff = local_to_global(data->data);
 
 		/* Setup DMA trasnfer using ADMA2 */
 		memset(emmc->desc_table, 0, sizeof(emmc->desc_table));
@@ -439,15 +442,17 @@ static int emmc_dma_init(const struct device *dev, struct sdhc_data *data, bool 
 			LOG_DBG("desc_table:%llx", emmc->desc_table[i]);
 		}
 
-		regs->adma_sys_addr1 = (uint32_t)((uintptr_t)emmc->desc_table & ADDRESS_32BIT_MASK);
+		SCB_CleanDCache_by_Addr(&emmc->desc_table[0], sizeof(emmc->desc_table));
+		regs->adma_sys_addr1 = (uint32_t)((uintptr_t)local_to_global(&emmc->desc_table[0]) &
+								ADDRESS_32BIT_MASK);
 		regs->adma_sys_addr2 =
-			(uint32_t)(((uintptr_t)emmc->desc_table >> 32) & ADDRESS_32BIT_MASK);
+		(uint32_t)(((uintptr_t)&emmc->desc_table[0] >> 32) & ADDRESS_32BIT_MASK);
 
 		LOG_DBG("adma: %llx %x %p", emmc->desc_table[0], regs->adma_sys_addr1,
 			emmc->desc_table);
 	} else {
 		/* Setup DMA trasnfer using SDMA */
-		regs->sdma_sysaddr = (uint32_t)((uintptr_t)data->data);
+		regs->sdma_sysaddr = (uint32_t)local_to_global(data->data);
 		LOG_DBG("sdma_sysaddr: %x", regs->sdma_sysaddr);
 	}
 	return 0;
@@ -626,8 +631,12 @@ static enum emmc_response_type emmc_decode_resp_type(enum sd_rsp_type type)
 		break;
 
 	case SD_RSP_TYPE_R5b:
+		resp_type = EMMC_HOST_RESP_LEN_48B;
+		break;
 	case SD_RSP_TYPE_R6:
 	case SD_RSP_TYPE_R7:
+		resp_type = EMMC_HOST_RESP_LEN_48;
+		break;
 	default:
 		resp_type = EMMC_HOST_INVAL_HOST_RESP_LEN;
 	}
@@ -653,10 +662,17 @@ static void update_cmd_response(const struct device *dev, struct sdhc_command *s
 
 		LOG_DBG("cmd resp: %x %x %x %x", resp0, resp1, resp2, resp3);
 
-		sdhc_cmd->response[0u] = resp3;
-		sdhc_cmd->response[1U] = resp2;
-		sdhc_cmd->response[2U] = resp1;
-		sdhc_cmd->response[3U] = resp0;
+		sdhc_cmd->response[0u] = resp0;
+		sdhc_cmd->response[1U] = resp1;
+		sdhc_cmd->response[2U] = resp2;
+		sdhc_cmd->response[3U] = resp3;
+
+	    /* shifting truncated CRC */
+		for (int i = 0; i < 4; i++) {
+			sdhc_cmd->response[i] <<= 8;
+			if (i != 3)
+				sdhc_cmd->response[i] |= sdhc_cmd->response[i + 1] >> 24;
+		}
 	} else {
 		LOG_DBG("cmd resp: %x", resp0);
 		sdhc_cmd->response[0u] = resp0;
@@ -708,6 +724,10 @@ static int emmc_host_send_cmd(const struct device *dev, const struct emmc_cmd_co
 	} else {
 		ret = poll_cmd_complete(dev, sdhc_cmd->timeout_ms);
 	}
+
+    //printf("CMD: 0x%04x, ARG: 0x%08x XFER: 0x%04x RSP01: 0x%08x PSTATE: 0x%08x cc:%d\n", \
+        cmd_reg, sdhc_cmd->arg, regs->transfer_mode, regs->resp_01, regs->present_state, !ret);
+
 	if (ret) {
 		LOG_ERR("Error on send cmd: %d, status:%d", config->cmd_idx, ret);
 		return ret;
@@ -1231,9 +1251,16 @@ static int emmc_init(const struct device *dev)
 {
 	struct emmc_data *emmc = dev->data;
 	const struct emmc_config *config = dev->config;
+	int ret;
 
 	k_sem_init(&emmc->lock, 1, 1);
 	k_event_init(&emmc->irq_event);
+
+	ret = pinctrl_apply_state(config->pincfg, PINCTRL_STATE_DEFAULT);
+	LOG_DBG("Applying Pinctrl state. ret - %d", ret);
+	if (ret < 0) {
+		return ret;
+	}
 
 #if DT_ANY_INST_ON_BUS_STATUS_OKAY(pcie)
 	if (config->pcie) {
@@ -1327,10 +1354,12 @@ static const struct sdhc_driver_api emmc_api = {
 #define EMMC_HOST_PCIE_DEFINE(n) _CONCAT(DEFINE_PCIE, DT_INST_ON_BUS(n, pcie))(n)
 
 #define EMMC_HOST_DEV_CFG(n)                                                                       \
+	PINCTRL_DT_INST_DEFINE(n);								\
 	EMMC_HOST_PCIE_DEFINE(n);                                                                  \
-	EMMC_HOST_IRQ_CONFIG(n);                                                                   \
+	EMMC_HOST_IRQ_CONFIG_PCIE0(n);								\
 	static const struct emmc_config emmc_config_data_##n = {                                   \
 		REG_INIT(n) INIT_PCIE(n).config_func = emmc_config_##n,                            \
+		.pincfg = PINCTRL_DT_INST_DEV_CONFIG_GET(n),					\
 		.hs200_mode = DT_INST_PROP_OR(n, mmc_hs200_1_8v, 0),                               \
 		.hs400_mode = DT_INST_PROP_OR(n, mmc_hs400_1_8v, 0),                               \
 		.dw_4bit = DT_INST_ENUM_HAS_VALUE(n, bus_width, 4),                                \
@@ -1340,7 +1369,7 @@ static const struct sdhc_driver_api emmc_api = {
 		.power_delay_ms = DT_INST_PROP_OR(n, power_delay_ms, 500),                         \
 	};                                                                                         \
                                                                                                    \
-	static struct emmc_data emmc_priv_data_##n;                                                \
+	static struct emmc_data __alif_ns_section emmc_priv_data_##n;                                                \
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(n, emmc_init, NULL, &emmc_priv_data_##n, &emmc_config_data_##n,      \
 			      POST_KERNEL, CONFIG_KERNEL_INIT_PRIORITY_DEVICE, &emmc_api);

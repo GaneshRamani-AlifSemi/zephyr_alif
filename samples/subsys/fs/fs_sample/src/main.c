@@ -25,7 +25,9 @@
 #define DISK_DRIVE_NAME "SD"
 #define DISK_MOUNT_PT "/"DISK_DRIVE_NAME":"
 
-static FATFS fat_fs;
+FATFS __alif_ns_section fat_fs __aligned(512);
+uint8_t data_rw_buf[1025];
+
 /* mounting info */
 static struct fs_mount_t mp = {
 	.type = FS_FATFS,
@@ -51,7 +53,7 @@ static struct fs_mount_t mp = {
 LOG_MODULE_REGISTER(main);
 
 #define MAX_PATH 128
-#define SOME_FILE_NAME "some.dat"
+#define SOME_FILE_NAME "some1.txt"
 #define SOME_DIR_NAME "some"
 #define SOME_REQUIRED_LEN MAX(sizeof(SOME_FILE_NAME), sizeof(SOME_DIR_NAME))
 
@@ -77,10 +79,14 @@ static bool create_some_entries(const char *base_path)
 	path[base] = 0;
 	strcat(&path[base], SOME_FILE_NAME);
 
-	if (fs_open(&file, path, FS_O_CREATE) != 0) {
+	if (fs_open(&file, path, FS_O_CREATE | FS_O_WRITE) != 0) {
 		LOG_ERR("Failed to create file %s", path);
 		return false;
 	}
+
+	memset(data_rw_buf, 'D', 1024);
+	fs_write(&file, &data_rw_buf[0], 1024);
+
 	fs_close(&file);
 
 	path[base] = 0;
@@ -100,6 +106,8 @@ static const char *disk_mount_pt = DISK_MOUNT_PT;
 
 int main(void)
 {
+	while(1){
+
 	/* raw disk i/o */
 	do {
 		static const char *disk_pdrv = DISK_DRIVE_NAME;
@@ -124,10 +132,10 @@ int main(void)
 			LOG_ERR("Unable to get sector size");
 			break;
 		}
-		printk("Sector size %u\n", block_size);
+		printf("Sector size %u\n", block_size);
 
 		memory_size_mb = (uint64_t)block_count * block_size;
-		printk("Memory Size(MB) %u\n", (uint32_t)(memory_size_mb >> 20));
+		printf("Memory Size(MB) %u\n", (uint32_t)(memory_size_mb >> 20));
 	} while (0);
 
 	mp.mnt_point = disk_mount_pt;
@@ -139,7 +147,7 @@ int main(void)
 #else
 	if (res == 0) {
 #endif
-		printk("Disk mounted.\n");
+		printf("Disk mounted.\n");
 		if (lsdir(disk_mount_pt) == 0) {
 #ifdef CONFIG_FS_SAMPLE_CREATE_SOME_ENTRIES
 			if (create_some_entries(disk_mount_pt)) {
@@ -148,16 +156,19 @@ int main(void)
 #endif
 		}
 	} else {
-		printk("Error mounting disk.\n");
+		printf("Error mounting disk.\n");
 	}
 
 	fs_unmount(&mp);
+	k_sleep(K_MSEC(3000));
+	}
 
 	while (1) {
-		k_sleep(K_MSEC(1000));
+		//k_sleep(K_MSEC(1000));
 	}
 	return 0;
 }
+
 
 /* List dir entry by path
  *
@@ -178,11 +189,11 @@ static int lsdir(const char *path)
 	/* Verify fs_opendir() */
 	res = fs_opendir(&dirp, path);
 	if (res) {
-		printk("Error opening dir %s [%d]\n", path, res);
+		printf("Error opening dir %s [%d]\n", path, res);
 		return res;
 	}
 
-	printk("\nListing dir %s ...\n", path);
+	printf("\nListing dir %s ...\n", path);
 	for (;;) {
 		/* Verify fs_readdir() */
 		res = fs_readdir(&dirp, &entry);
@@ -193,9 +204,9 @@ static int lsdir(const char *path)
 		}
 
 		if (entry.type == FS_DIR_ENTRY_DIR) {
-			printk("[DIR ] %s\n", entry.name);
+			printf("[DIR ] %s\n", entry.name);
 		} else {
-			printk("[FILE] %s (size = %zu)\n",
+			printf("[FILE] %s (size = %zu)\n",
 				entry.name, entry.size);
 		}
 		count++;
@@ -209,3 +220,4 @@ static int lsdir(const char *path)
 
 	return res;
 }
+

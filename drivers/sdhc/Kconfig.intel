@@ -13,6 +13,11 @@ config INTEL_EMMC_HOST
 	  validated using intel's EMMC host controller.
 
 if INTEL_EMMC_HOST
+
+# SDIF DMA needs 512 bit aligned buffers
+config SDHC_BUFFER_ALIGNMENT
+	default 512
+
 config INTEL_EMMC_HOST_INTR
 	bool "EMMC host controller interrupt mode"
 	default y

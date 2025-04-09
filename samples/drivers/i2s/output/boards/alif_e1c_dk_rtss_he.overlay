@@ -4,14 +4,25 @@
  */
 
 /*
- * I2S_0 => Speaker Output
+ * I2S_0 => Output to Codec.
  * I2S_2 => Mic Input
  */
 
-i2s_tx: &i2s0 {
+/ {
+	aliases {
+		i2s-tx = &i2s0;
+
+	};
+};
+
+&i2s0 {
 	status = "okay";
 };
 
-i2s_rx: &i2s2 {
-	status = "okay";
+&i2s1 {
+	status = "disabled";
+};
+
+&i2s2 {
+	status = "disabled";
 };

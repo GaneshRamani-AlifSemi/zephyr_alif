@@ -15,6 +15,7 @@
 #include <zephyr/storage/disk_access.h>
 
 static const char * const pdrv_str[] = {FF_VOLUME_STRS};
+volatile uint8_t __alif_ns_section dma_buff[10240] __aligned(512);
 
 /* Get Drive Status */
 DSTATUS disk_status(BYTE pdrv)
@@ -45,9 +46,13 @@ DRESULT disk_read(BYTE pdrv, BYTE *buff, LBA_t sector, UINT count)
 {
 	__ASSERT(pdrv < ARRAY_SIZE(pdrv_str), "pdrv out-of-range\n");
 
-	if (disk_access_read(pdrv_str[pdrv], buff, sector, count) != 0) {
+	memset(dma_buff, 0, sizeof(dma_buff));
+
+	if (disk_access_read(pdrv_str[pdrv], dma_buff, sector, count) != 0) {
 		return RES_ERROR;
 	} else {
+		SCB_InvalidateDCache_by_Addr(dma_buff, count * 512);
+		memcpy(buff, (const void *)dma_buff, count * 512);
 		return RES_OK;
 	}
 
@@ -58,7 +63,10 @@ DRESULT disk_write(BYTE pdrv, const BYTE *buff, LBA_t sector, UINT count)
 {
 	__ASSERT(pdrv < ARRAY_SIZE(pdrv_str), "pdrv out-of-range\n");
 
-	if (disk_access_write(pdrv_str[pdrv], buff, sector, count) != 0) {
+	SCB_CleanDCache_by_Addr(buff, count * 512);
+	memcpy((void *)dma_buff, buff, count * 512);
+
+	if (disk_access_write(pdrv_str[pdrv], dma_buff, sector, count) != 0) {
 		return RES_ERROR;
 	} else {
 		return RES_OK;
