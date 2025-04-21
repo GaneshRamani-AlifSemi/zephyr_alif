@@ -5,4 +5,4 @@ board_runner_args(jlink "--iface=JTAG")
 board_runner_args(jlink "--speed=4000")
 board_runner_args(jlink "--tool-opt=-jtagconf -1,-1")
 
-include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)
+include(${ZEPHYR_BASE}/boards/common/alif_flash.board.cmake)
