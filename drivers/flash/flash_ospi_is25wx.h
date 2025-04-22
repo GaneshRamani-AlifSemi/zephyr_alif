@@ -32,6 +32,8 @@
 #define IO_MODE_ADDRESS    0x00000000U
 #define WAIT_CYCLE_ADDRESS 0x00000001U
 
+#define EXT_SPI_MODE		(0xFFU)
+#define EXT_SPI_MODE_WO_DQS	(0xDFU)
 #define OCTAL_DDR_WO_DQS    (0xC7U)
 #define OCTAL_DDR           (0xE7U)
 #define DEFAULT_WAIT_CYCLES (0x10U)

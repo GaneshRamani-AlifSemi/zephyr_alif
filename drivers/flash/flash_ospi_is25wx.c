@@ -632,6 +632,130 @@ static int flash_alif_ospi_erase(const struct device *dev, off_t addr, size_t le
 	return ret;
 }
 
+static int32_t read_dev_id_ext_spi_mode(const struct device *dev)
+{
+	int32_t dev_id = -1, ret;
+	uint32_t event;
+
+	struct alif_flash_ospi_dev_data *dev_data = (struct alif_flash_ospi_dev_data *)dev->data;
+
+	ret = set_write_enable(dev);
+	if (ret != 0) {
+		return ret;
+	}
+
+	/* Prepare command and address for setting flash in Extended SPI mode */
+	if (IS_ENABLED(CONFIG_FLASH_ADDRESS_IN_SINGLE_FIFO_LOCATION)) {
+		dev_data->cmd_buf[0] = CMD_WRITE_VOL_CONFIG;
+		dev_data->cmd_buf[1] = (uint8_t)(IO_MODE_ADDRESS >> 0);
+		dev_data->cmd_buf[2] = EXT_SPI_MODE;
+	} else {
+		dev_data->cmd_buf[0] = CMD_WRITE_VOL_CONFIG;
+		dev_data->cmd_buf[1] = (uint8_t)(IO_MODE_ADDRESS >> 16);
+		dev_data->cmd_buf[2] = (uint8_t)(IO_MODE_ADDRESS >> 8);
+		dev_data->cmd_buf[3] = (uint8_t)(IO_MODE_ADDRESS >> 0);
+		dev_data->cmd_buf[4] = EXT_SPI_MODE;
+	}
+	dev_data->trans_conf.addr_len = OSPI_ADDR_LENGTH_24_BITS;
+
+	/* Select Chip */
+	ret = set_cs_pin(dev_data->ospi_handle, SLAVE_ACTIVATE);
+	if (ret != 0) {
+		return ret;
+	}
+
+	ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
+	if (ret != 0) {
+		ret = err_map_alif_hal_to_zephyr(ret);
+		return ret;
+	}
+
+	k_event_clear(&dev_data->event_f, OSPI_EVENT_TRANSFER_COMPLETE | OSPI_EVENT_DATA_LOST);
+
+	ret = alif_hal_ospi_send(dev_data->ospi_handle,
+		dev_data->cmd_buf, CONFIG_FLASH_PREPARE_CMD_LEN);
+	if (ret != 0) {
+		ret = err_map_alif_hal_to_zephyr(ret);
+		return ret;
+	}
+
+	event = k_event_wait(&dev_data->event_f,
+			     OSPI_EVENT_TRANSFER_COMPLETE | OSPI_EVENT_DATA_LOST, false, K_FOREVER);
+
+	if (!(event & OSPI_EVENT_TRANSFER_COMPLETE)) {
+		/* De-Select slave */
+		ret = set_cs_pin(dev_data->ospi_handle, SLAVE_DE_ACTIVATE);
+		if (ret != 0) {
+			return ret;
+		}
+
+		return -EIO;
+	}
+
+	/* De-Select slave */
+	ret = set_cs_pin(dev_data->ospi_handle, SLAVE_DE_ACTIVATE);
+	if (ret != 0) {
+		return ret;
+	}
+
+	/* Prepare and send command to Read Device ID */
+	uint32_t  cmd_buf[2] = {0};
+
+	cmd_buf[0] = CMD_READ_DEV_ID;
+
+	dev_data->trans_conf.ddr_enable = 0;
+	dev_data->trans_conf.frame_format = OSPI_FRF_STANDRAD;
+	dev_data->trans_conf.frame_size = 8;
+	dev_data->trans_conf.wait_cycles = 0;
+	dev_data->trans_conf.rx_ds_enable = 0;
+	dev_data->trans_conf.inst_len = 8;
+	dev_data->trans_conf.addr_len = OSPI_ADDR_LENGTH_0_BITS;
+
+	ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
+	if (ret != 0) {
+		ret = err_map_alif_hal_to_zephyr(ret);
+		return ret;
+	}
+
+	ret = set_cs_pin(dev_data->ospi_handle, SLAVE_ACTIVATE);
+	if (ret != 0) {
+		return ret;
+	}
+
+	k_event_clear(&dev_data->event_f, OSPI_EVENT_TRANSFER_COMPLETE | OSPI_EVENT_DATA_LOST);
+
+	ret = alif_hal_ospi_transfer(dev_data->ospi_handle, &cmd_buf[0], &cmd_buf[1],
+				     ARRAY_SIZE(cmd_buf));
+	if (ret != 0) {
+		ret = err_map_alif_hal_to_zephyr(ret);
+		return ret;
+	}
+
+	event = k_event_wait(&dev_data->event_f,
+			     OSPI_EVENT_TRANSFER_COMPLETE | OSPI_EVENT_DATA_LOST, false, K_FOREVER);
+
+	if (!(event & OSPI_EVENT_TRANSFER_COMPLETE)) {
+		/* De-Select Slave */
+		ret = set_cs_pin(dev_data->ospi_handle, SLAVE_DE_ACTIVATE);
+		if (ret != 0) {
+			return ret;
+		}
+		event = 0;
+		return -EIO;
+	}
+	event = 0;
+
+	/* De-Select Slave */
+	ret = set_cs_pin(dev_data->ospi_handle, SLAVE_DE_ACTIVATE);
+	if (ret != 0) {
+		return ret;
+	}
+
+	dev_id = (uint8_t)cmd_buf[1];
+	
+	return dev_id;
+}
+
 static int flash_alif_ospi_init(const struct device *dev)
 {
 	int ret;
@@ -694,6 +818,9 @@ static int flash_alif_ospi_init(const struct device *dev)
 		ret = err_map_alif_hal_to_zephyr(ret);
 		return ret;
 	}
+
+	ret = read_dev_id_ext_spi_mode(dev);
+	printk("The device id returned through SPI Mode %d \n", ret);
 
 	ret = set_write_enable(dev);
 	if (ret != 0) {
