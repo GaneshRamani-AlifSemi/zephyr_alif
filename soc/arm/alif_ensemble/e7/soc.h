@@ -112,7 +112,7 @@
  * the ARM compiler from sign extending IRQn_Type values higher than 0x80
  * into negative IRQ values, which causes hard-to-debug Hard Faults.
  */
-typedef uint32_t IRQn_Type;
+typedef unsigned int IRQn_Type;
 
 typedef enum IRQn {
 /* ---------------  Processor Exceptions Numbers  ------------------------- */
