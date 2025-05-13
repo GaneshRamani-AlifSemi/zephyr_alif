@@ -67,9 +67,9 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         kwargs['cwd'] = self.exe_dir
 
         fls_addr = self.flash_address_from_build_conf(self.build_conf)
-        fls_size = self.build_conf.get('CONFIG_FLASH_SIZE') * 1024
+        fls_size = self.build_conf.get('CONFIG_FLASH_SIZE')
 
-        self.logger.info(f'binary address 0x{fls_addr:x} and size 0x{fls_size}KB')
+        self.logger.info(f'binary address 0x{fls_addr:x} and size {fls_size}KB')
 
         if self.build_conf.getboolean('CONFIG_RTSS_HP'):
             self.logger.info("..build for HighPerformance Core")
@@ -103,10 +103,12 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
             logger.error(f"dts parsing error {err}")
             return 0
 
-        dt2 = fdt.parse_dts(dtext)
-        soc = dt2.get_node('soc')
-        itcm = soc.get_subnode('itcm@0')
-        addr = itcm.get_property('itcm_global_base')
+        try:
+            dt2 = fdt.parse_dts(dtext)
+            addr = dt2.get_node('soc').get_subnode('itcm@0').get_property('itcm_global_base')
+        except Exception as err:
+            logger.error(f"Parsing itcm address {err}")
+            return 0
         return addr.value
 
     @classmethod
@@ -128,16 +130,21 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
         #verify flash address
         if fls_addr == 0:
-            cpu_node["loadAddress"] = hex(cls.get_itcm_address(logger))
+            itcm_addr = cls.get_itcm_address(logger)
+            if itcm_addr == 0:
+                logger.error(f"err addr 0x{itcm_addr:x}")
+                return
+            logger.info(f"itcm global address 0x{itcm_addr:x}")
+            cpu_node["loadAddress"] = hex(itcm_addr)
             cpu_node["flags"] = ["load","boot"]
 
-        elif fls_addr >= cls.mram_base_addr and fls_addr <= cls.mram_base_addr + fls_size:
+        elif fls_addr >= cls.mram_base_addr and fls_addr <= cls.mram_base_addr + (fls_size * 1024):
             del cpu_node['loadAddress']
             cpu_node['mramAddress'] = hex(fls_addr)
             cpu_node['flags'] = ["boot"]
 
         else:
-            raise NotImplementedError(f'Invalid Address {fls_addr} to write')
+            raise NotImplementedError(f'Unsupported address base 0x{fls_addr:x} to write')
 
         try:
             with open(cls.exe_dir + cls.cfg_op_file, 'w') as file:
