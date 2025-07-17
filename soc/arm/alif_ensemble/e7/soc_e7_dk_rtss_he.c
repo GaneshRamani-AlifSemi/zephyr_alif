@@ -56,32 +56,32 @@ static int ensemble_e7_dk_rtss_he_init(void)
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi0)), \
 	! DT_NODE_HAS_PROP(DT_NODELABEL(spi0), serial_target))
 
-	sys_write32(0x0101, 0x4902F028);
+	sys_write32(0x0101, EXPSLV_SSI_CTRL);
 #endif
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi1)), \
 	! DT_NODE_HAS_PROP(DT_NODELABEL(spi1), serial_target))
 
-	sys_write32(0x0202, 0x4902F028);
+	sys_write32(0x0202, EXPSLV_SSI_CTRL);
 #endif
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi2)), \
 	! DT_NODE_HAS_PROP(DT_NODELABEL(spi2), serial_target))
 
-	sys_write32(0x0404, 0x4902F028);
+	sys_write32(0x0404, EXPSLV_SSI_CTRL);
 #endif
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi3)), \
 	! DT_NODE_HAS_PROP(DT_NODELABEL(spi3), serial_target))
 
-	sys_write32(0x0808, 0x4902F028);
+	sys_write32(0x0808, EXPSLV_SSI_CTRL);
 #endif
 
 #if  DT_NODE_HAS_STATUS(DT_NODELABEL(spi4), okay)
 	/* Enable LP-SPI CLK */
-	data = sys_read32(0x43007010);
+	data = sys_read32(M55HE_CFG_HE_CLK_ENA);
 	data |= (1 << 16);
-	sys_write32(data, 0x43007010);
+	sys_write32(data, M55HE_CFG_HE_CLK_ENA);
 #endif
 
 	/* enable pdm in expansion master */

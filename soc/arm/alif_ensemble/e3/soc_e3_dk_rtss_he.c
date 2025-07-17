@@ -56,25 +56,36 @@ static int ensemble_e3_dk_rtss_he_init(void)
 	data |= 0xc0000000;
 	sys_write32(data, EXPSLV_EXPMST0_CTRL);
 
-	/*
-	 * Setting expansion master0 SPI control register values
-	 * 0xf at 8-11 bit is setting all 4 SPI instances as master
-	 * bit 0-3; ss_in_sel; 0 - from io pad; 1 - from ssi_in_val
-	 * bit 8-11; ss_in_val; when ss_in_sel=1, feed ss_in_val to SSI,
-	 * each bit controls one SSI instance.
-	 * For setting an spi instance as slave, put 0 in the corresponding
-	 * bit position of both 8-11 and 0-3 bit fields.
-	 * For example if we want to set SPI1 as master and
-	 * remaining instances as slave, set the 1st bit for ss_in_sel, which will
-	 * make ss_in_val to feed to SSI, and set the corresponding ss_in_val bit.
-	 * here for SPI1 as master set the 9th bit. So the value to feed SPI1 as
-	 * master and remaining as slave is 0x0202.
-	 */
-	sys_write32(0x0202, EXPSLV_SSI_CTRL);
+#if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi0)), \
+	! DT_NODE_HAS_PROP(DT_NODELABEL(spi0), serial_target))
 
+	sys_write32(0x0101, EXPSLV_SSI_CTRL);
+#endif
+
+#if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi1)), \
+	! DT_NODE_HAS_PROP(DT_NODELABEL(spi1), serial_target))
+
+	sys_write32(0x0202, EXPSLV_SSI_CTRL);
+#endif
+
+#if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi2)), \
+	! DT_NODE_HAS_PROP(DT_NODELABEL(spi2), serial_target))
+
+	sys_write32(0x0404, EXPSLV_SSI_CTRL);
+#endif
+
+#if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi3)), \
+	! DT_NODE_HAS_PROP(DT_NODELABEL(spi3), serial_target))
+
+	sys_write32(0x0808, EXPSLV_SSI_CTRL);
+#endif
+
+#if  DT_NODE_HAS_STATUS(DT_NODELABEL(spi4), okay)
+	/* Enable LP-SPI CLK */
 	data = sys_read32(M55HE_CFG_HE_CLK_ENA);
 	data |= (1 << 16);
 	sys_write32(data, M55HE_CFG_HE_CLK_ENA);
+#endif
 
 	if (IS_ENABLED(CONFIG_DISPLAY)) {
 		/* Enable CDC200 peripheral clock. */
