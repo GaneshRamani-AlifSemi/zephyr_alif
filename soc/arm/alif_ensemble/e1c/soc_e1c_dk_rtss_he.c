@@ -44,25 +44,25 @@ static int ensemble_e1c_dk_rtss_he_init(void)
 	sys_write32(0x1, LPRTC1_CLK_EN);
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi0)), \
-	! DT_NODE_HAS_PROP(DT_NODELABEL(spi0), serial_target))
+	!DT_NODE_HAS_PROP(DT_NODELABEL(spi0), serial_target))
 
 	sys_write32(0x0101, SSI_CTRL_EN);
 #endif
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi1)), \
-	! DT_NODE_HAS_PROP(DT_NODELABEL(spi1), serial_target))
+	!DT_NODE_HAS_PROP(DT_NODELABEL(spi1), serial_target))
 
 	sys_write32(0x0202, SSI_CTRL_EN);
 #endif
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi2)), \
-	! DT_NODE_HAS_PROP(DT_NODELABEL(spi2), serial_target))
+	!DT_NODE_HAS_PROP(DT_NODELABEL(spi2), serial_target))
 
 	sys_write32(0x0404, SSI_CTRL_EN);
 #endif
 
 #if  UTIL_AND(DT_NODE_HAS_STATUS_OKAY(DT_NODELABEL(spi3)), \
-	! DT_NODE_HAS_PROP(DT_NODELABEL(spi3), serial_target))
+	!DT_NODE_HAS_PROP(DT_NODELABEL(spi3), serial_target))
 
 	sys_write32(0x0808, SSI_CTRL_EN);
 #endif
