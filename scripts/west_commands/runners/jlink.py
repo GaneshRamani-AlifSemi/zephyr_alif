@@ -273,13 +273,15 @@ class JLinkBinaryRunner(ZephyrBinaryRunner):
                           ['-ex', 'target remote {}:{}'.format(self.gdb_host, self.gdb_port)])
             if command == 'debug':
                 client_cmd += ['-ex', 'monitor halt',
-                               '-ex', 'monitor reset',
-                               '-ex', 'load']
+                               '-ex', 'monitor reset']
+                               #'-ex', 'load']
                 if self.reset:
                     client_cmd += ['-ex', 'monitor reset']
             if not self.gdb_host:
                 self.require(self.gdbserver)
                 self.print_gdbserver_message()
+                self.logger.info('GR2 : J-Link GDB server port : server_cmd : client_cmd '
+                         f'{self.gdb_port}{server_cmd}{client_cmd}')
                 self.run_server_and_client(server_cmd, client_cmd)
             else:
                 self.run_client(client_cmd)

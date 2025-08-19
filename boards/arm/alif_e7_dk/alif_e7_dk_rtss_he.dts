@@ -17,9 +17,9 @@
 		zephyr,flash = &mram_storage;
 		zephyr,code-partition = &slot0_partition;
 		zephyr,sram = &dtcm;
-		zephyr,console = &uart4;
-		zephyr,shell-uart = &uart4;
-		zephyr,uart-mcumgr = &uart4;
+		zephyr,console = &uart2;
+		zephyr,shell-uart = &uart2;
+		zephyr,uart-mcumgr = &uart2;
 	};
 
 	aliases {
@@ -55,7 +55,7 @@
 	};
 };
 
-&uart4 {
+&uart2 {
 	status = "okay";
 };
 
