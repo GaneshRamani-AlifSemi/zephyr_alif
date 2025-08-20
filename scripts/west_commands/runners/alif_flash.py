@@ -7,10 +7,25 @@ import os
 import json
 import shutil
 
-from pathlib import Path
-from runners.core import ZephyrBinaryRunner, RunnerCaps
-
 import fdt
+import argparse
+import ipaddress
+import subprocess
+import sys
+
+from pathlib import Path
+from runners.core import ZephyrBinaryRunner, RunnerCaps, FileType
+
+try:
+    import pylink
+    from pylink.library import Library
+    MISSING_REQUIREMENTS = False
+except ImportError:
+    MISSING_REQUIREMENTS = True
+
+DEFAULT_JLINK_GDB_PORT = 2331
+DEFAULT_JLINK_GDB_SERVER = 'JLinkGDBServer'
+
 
 class AlifImageBinaryRunner(ZephyrBinaryRunner):
     '''Runner front-end for Alif Image Flasher.'''
@@ -25,15 +40,32 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
     cfg_ip_file = '/build/config/app-cpu-stubs.json'
     cfg_op_file = '/build/config/tmp-cpu-stubs.json'
 
-    def __init__(self, cfg, toc_create='app-gen-toc', toc_write='app-write-mram',
-                 erase=False, reset=True):
+
+    def __init__(self, cfg, device,
+                 erase=False, reset=True,
+                 iface='swd', speed='auto',
+                 gdbserver=DEFAULT_JLINK_GDB_SERVER,
+                 gdb_port=DEFAULT_JLINK_GDB_PORT,
+                 toc_create='app-gen-toc', toc_write='app-write-mram'):
         super().__init__(cfg)
         self.bin_ = cfg.bin_file
 
         self.gen_toc = toc_create
         self.write_toc = toc_write
+        self.gdbserver = gdbserver
+        self.gdb_port = gdb_port
+        self.device = device
+        self.iface = iface
+        self.speed = speed
         self.erase = bool(erase)
         self.reset = bool(reset)
+        self.gdb_cmd = [cfg.gdb] if cfg.gdb else None
+        self.file = cfg.file
+        self.file_type = cfg.file_type
+        self.hex_name = cfg.hex_file
+        self.bin_name = cfg.bin_file
+        self.elf_name = cfg.elf_file
+
 
     @classmethod
     def name(cls):
@@ -41,22 +73,106 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
     @classmethod
     def capabilities(cls):
-        return RunnerCaps(commands={'flash'}, erase=False, reset=True)
+        return RunnerCaps(commands={'flash', 'debug', 'attach'}, erase=False, reset=True)
 
     @classmethod
     def do_add_parser(cls, parser):
+        # Required:
+        parser.add_argument('--device', required=True, help='device name')
+
+        # Optional:
+        parser.add_argument('--iface', default='swd',
+                            help='interface to use, default is swd')
+        parser.add_argument('--speed', default='auto',
+                            help='interface speed, default is autodetect')
+        parser.add_argument('--tui', default=False, action='store_true',
+                            help='if given, GDB uses -tui')
+        parser.add_argument('--gdbserver', default='JLinkGDBServer',
+                            help='GDB server, default is JLinkGDBServer')
+        parser.add_argument('--gdb-port', default=DEFAULT_JLINK_GDB_PORT,
+                            help='pyocd gdb port, defaults to {}'.format(
+                                DEFAULT_JLINK_GDB_PORT))
+
         parser.set_defaults(reset=True)
 
     @classmethod
     def do_create(cls, cfg, args):
-        return AlifImageBinaryRunner(cfg)
+        return AlifImageBinaryRunner(cfg, args.device,
+                                    erase=args.erase,
+                                    reset=args.reset,
+                                    iface=args.iface, speed=args.speed,
+                                    gdb_port=args.gdb_port)
 
+    @property
+    def jlink_version(self):
+        # Get the J-Link version as a (major, minor, rev) tuple of integers.
+        #
+        # J-Link's command line tools provide neither a standalone
+        # "--version" nor help output that contains the version. Hack
+        # around this deficiency by using the third-party pylink library
+        # to load the shared library distributed with the tools, which
+        # provides an API call for getting the version.
+        if not hasattr(self, '_jlink_version'):
+            # pylink 0.14.0/0.14.1 exposes JLink SDK DLL (libjlinkarm) in
+            # JLINK_SDK_STARTS_WITH, while other versions use JLINK_SDK_NAME
+            if pylink.__version__ in ('0.14.0', '0.14.1'):
+                sdk = Library.JLINK_SDK_STARTS_WITH
+            else:
+                sdk = Library.JLINK_SDK_NAME
 
-    def do_run(self, command, **kwargs):
+            plat = sys.platform
+            if plat.startswith('win32'):
+                libname = Library.get_appropriate_windows_sdk_name() + '.dll'
+            elif plat.startswith('linux'):
+                libname = sdk + '.so'
+            elif plat.startswith('darwin'):
+                libname = sdk + '.dylib'
+            else:
+                self.logger.warning(f'unknown platform {plat}; assuming UNIX')
+                libname = sdk + '.so'
+
+            lib = Library(dllpath=os.fspath(Path(self.commander).parent /
+                                            libname))
+            version = int(lib.dll().JLINKARM_GetDLLVersion())
+            self.logger.debug('JLINKARM_GetDLLVersion()=%s', version)
+            # The return value is an int with 2 decimal digits per
+            # version subfield.
+            self._jlink_version = (version // 10000,
+                                   (version // 100) % 100,
+                                   version % 100)
+
+        return self._jlink_version
+
+    @property
+    def jlink_version_str(self):
+        # Converts the numeric revision tuple to something human-readable.
+        if not hasattr(self, '_jlink_version_str'):
+            major, minor, rev = self.jlink_version
+            rev_str = chr(ord('a') + rev - 1) if rev else ''
+            self._jlink_version_str = f'{major}.{minor:02}{rev_str}'
+        return self._jlink_version_str
+
+    @property
+    def supports_nogui(self):
+        # -nogui was introduced in J-Link Commander v6.80
+        return self.jlink_version >= (6, 80, 0)
+
+    @property
+    def supports_thread_info(self):
+        # RTOSPlugin_Zephyr was introduced in 7.11b
+        return self.jlink_version >= (7, 11, 2)
+
+    @property
+    def supports_loader(self):
+        return self.jlink_version >= (7, 70, 4)
+
+    def flash(self, **kwargs):
+
         #check env
         if self.exe_dir is None:
             raise RuntimeError("ALIF_SE_TOOLS_DIR Environment unset")
 
+        self.logger.info("GenToc bin name %s Exedir %s", self.gen_toc, self.exe_dir)
         #check tools availability
         self.require(self.gen_toc, self.exe_dir)
 
@@ -98,6 +214,53 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         finally:
             os.chdir(old_cwd)
             self.logger.info(f"Returned to working directory {old_cwd}")
+
+    def debug(self, **kwargs):
+            if MISSING_REQUIREMENTS:
+                raise RuntimeError('one or more Python dependencies were missing; '
+                               "see the getting started guide for details on "
+                               "how to fix")
+
+            server_cmd = ([self.gdbserver] +
+                      ['-select', 'usb',
+                       '-port', str(self.gdb_port),
+                       '-if', self.iface,
+                       '-speed', self.speed,
+                       '-device', self.device,
+                       '-silent',
+                       '-singlerun', '-nogui'])
+
+            if self.gdb_cmd is None:
+                raise ValueError('Cannot debug; gdb is missing')
+            if self.file is not None:
+                if self.file_type != FileType.ELF:
+                    raise ValueError('Cannot debug; elf file required')
+                elf_name = self.file
+            elif self.elf_name is None:
+                raise ValueError('Cannot debug; elf is missing')
+            else:
+                elf_name = self.elf_name
+            client_cmd = (self.gdb_cmd +
+                          [elf_name] +
+                          ['-ex', 'target remote :{}'.format(self.gdb_port)] +
+                          ['-ex', 'monitor halt'] +
+                          ['-ex', 'monitor reset'])
+
+            self.require(self.gdbserver)
+            self.logger.info('Alif : J-Link GDB server port : server_cmd : client_cmd '
+                        f'{self.gdb_port}{server_cmd}{client_cmd}')
+            self.run_server_and_client(server_cmd, client_cmd)
+
+
+
+    def do_run(self, command, **kwargs):
+
+        #Even it is Debug make sure binary flashed in MRAM.
+        if command == 'flash':
+            self.flash(**kwargs)
+
+        if command == 'debug':
+            self.debug(**kwargs)
 
     @classmethod
     def get_itcm_address(cls, logger):
