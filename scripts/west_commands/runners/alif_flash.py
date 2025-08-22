@@ -6,11 +6,11 @@ Runner for Alif binary image burner.
 import os
 import json
 import shutil
+import re
 import fdt
 
 from pathlib import Path
 from runners.core import ZephyrBinaryRunner, RunnerCaps, FileType
-
 
 DEFAULT_JLINK_GDB_PORT = 2331
 DEFAULT_JLINK_GDB_SERVER = 'JLinkGDBServer'
@@ -27,6 +27,7 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
     cfg_ip_file = '/build/config/app-cpu-stubs.json'
     cfg_op_file = '/build/config/tmp-cpu-stubs.json'
+    glbl_cfg_file = '/utils/global-cfg.db'
 
     def __init__(self, cfg, device,
                  erase=False, reset=True,
@@ -99,6 +100,9 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
         #check tools availability
         self.require(self.gen_toc, self.exe_dir)
+
+        if(self.verify_tool_config(self.logger, self.device) != True) :
+            return
 
         fls_addr = self.flash_address_from_build_conf(self.build_conf)
         fls_size = self.build_conf.get('CONFIG_FLASH_SIZE')
@@ -191,6 +195,42 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         #Attach : Launch debug session to the running process.
         if command == 'attach':
             self.debug(attach = True, **kwargs)
+
+    @classmethod
+    def verify_tool_config(cls, logger, device):
+        """check SE Tool configuration and device argument"""
+        try:
+            with open(cls.exe_dir + cls.glbl_cfg_file, 'r', encoding="utf-8") as conf_file:
+                json_data = json.load(conf_file)
+                val = json_data.get("DEVICE", {})
+                value = val.get("Part#")
+
+                if not value:
+                    logger.error(f"fetch Part configuration")
+                    return False
+
+                dev_val = re.search(r"\(([^)]+)\)", value)
+                if dev_val:
+                    cfg_dev = dev_val.group(1)
+                else:
+                    logger.error(f"fetch Device configuration")
+                    return False
+
+                logger.info(f"SE Tool configured to {cfg_dev} and target {device}")
+                if (cfg_dev[:5] == device[:5]):
+                    return True
+                else:
+                    logger.error('Target and configuration Mismatching !!! ' \
+                                  'Pls re-check the Alif tools configuration !')
+                    return False
+
+        except json.JSONDecodeError as err:
+            logger.error(f"Invalid JSON format: {err}")
+            return False
+
+        except IOError as err:
+            logger.error(f"Can't open file to read {cls.exe_dir + cls.glbl_cfg_file} : {err}")
+            return False
 
     @classmethod
     def get_itcm_address(cls, logger):
