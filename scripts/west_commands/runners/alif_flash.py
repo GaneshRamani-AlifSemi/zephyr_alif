@@ -4,6 +4,7 @@
 Runner for Alif binary image burner.
 """
 import os
+import sys
 import json
 import shutil
 import re
@@ -13,7 +14,7 @@ from pathlib import Path
 from runners.core import ZephyrBinaryRunner, RunnerCaps, FileType
 
 DEFAULT_JLINK_GDB_PORT = 2331
-DEFAULT_JLINK_GDB_SERVER = 'JLinkGDBServer'
+DEFAULT_JLINK_GDB_SERVER = 'JLinkGDBServerCL' if sys.platform == 'win32' else 'JLinkGDBServer'
 
 class AlifImageBinaryRunner(ZephyrBinaryRunner):
     '''Runner front-end for Alif Image Flasher.'''
@@ -140,10 +141,10 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
         finally:
             os.chdir(old_cwd)
-            self.logger.info(f"Returned to working directory {old_cwd}")
+            self.logger.info("Returned to working directory {old_cwd}")
 
     def debug(self, attach = False, **kwargs):
-
+            '''debug '''
             #check tool availability
             self.require(self.gdbserver)
 
@@ -206,14 +207,14 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                 value = val.get("Part#")
 
                 if not value:
-                    logger.error(f"fetch Part configuration")
+                    logger.error("fetch Part configuration")
                     return False
 
                 dev_val = re.search(r"\(([^)]+)\)", value)
                 if dev_val:
                     cfg_dev = dev_val.group(1)
                 else:
-                    logger.error(f"fetch Device configuration")
+                    logger.error("fetch Device configuration")
                     return False
 
                 logger.info(f"SE Tool configured to {cfg_dev} and target {device}")
