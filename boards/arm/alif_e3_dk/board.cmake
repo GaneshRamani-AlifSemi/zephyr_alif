@@ -7,4 +7,3 @@ board_runner_args(jlink "--device=AE302F80F55D5_HE" "--speed=4000")
 endif()
 
 include(${ZEPHYR_BASE}/boards/common/alif_flash.board.cmake)
-include(${ZEPHYR_BASE}/boards/common/jlink.board.cmake)
