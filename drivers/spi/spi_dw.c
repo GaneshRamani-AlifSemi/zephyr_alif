@@ -27,6 +27,10 @@ LOG_MODULE_REGISTER(spi_dw);
 #include <zephyr/sys/sys_io.h>
 #include <zephyr/sys/util.h>
 
+#include <zephyr/pm/device.h>
+#include <zephyr/pm/policy.h>
+
+
 #ifdef CONFIG_IOAPIC
 #include <zephyr/drivers/interrupt_controller/ioapic.h>
 #endif
@@ -100,8 +104,8 @@ out:
 		write_ctrlr0(dev, reg_data);
 	}
 
-	LOG_DBG("SPI transaction completed %s error",
-		    error ? "with" : "without");
+	// LOG_DBG("SPI transaction completed %s error",
+	// 	    error ? "with" : "without");
 
 	spi_context_complete(&spi->ctx, dev, error);
 }
@@ -539,9 +543,36 @@ static int spi_dw_configure(const struct device *dev,
 			    const struct spi_config *config)
 {
 	const struct spi_dw_config *info = dev->config;
-	uint32_t ctrlr0 = 0U;
+	uint32_t ctrlr0 = 0U, ret, clk_freq;
 
-	LOG_DBG("%p (prev %p)", config, spi->ctx.config);
+	//LOG_DBG("%p (prev %p)", config, spi->ctx.config);
+
+	/*
+	 * set clock frequency from clock_frequency property if valid,
+	 * otherwise, get clock frequency from clock manager
+	 */
+	clk_freq = info->clock_frequency;
+
+	if (!clk_freq) {
+		if (!device_is_ready(info->clock_dev)) {
+			LOG_ERR("Clock dev not ready");
+			return -EINVAL;
+		}
+		ret = clock_control_configure(info->clock_dev, info->clock_subsys, NULL);
+		if (ret != 0) {
+			return -EINVAL;
+		}
+		ret = clock_control_on(info->clock_dev, info->clock_subsys);
+		if (ret != 0 && ret != -EALREADY) {
+			return -EINVAL;
+		}
+		if (clock_control_get_rate(info->clock_dev,
+					   info->clock_subsys,
+					   &clk_freq) != 0) {
+			LOG_DBG("clk cntrl config clk freq :%u)",clk_freq);
+			return -EINVAL;
+		}
+	}
 
 	if (spi_context_configured(&spi->ctx, config)) {
 		/* Nothing to do */
@@ -618,13 +649,15 @@ static int spi_dw_configure(const struct device *dev,
 	/* At this point, it's mandatory to set this on the context! */
 	spi->ctx.config = config;
 
+	LOG_DBG("clk freq :%u)",clk_freq);
+
 	if (!spi_dw_is_slave(spi)) {
 		/* Baud rate and Slave select, for master only */
-		write_baudr(dev, SPI_DW_CLK_DIVIDER(info->clock_frequency,
+		write_baudr(dev, SPI_DW_CLK_DIVIDER(clk_freq,
 						    config->frequency));
 		write_ser(dev, 1 << config->slave);
 	}
-
+#if 0
 	if (spi_dw_is_slave(spi)) {
 		LOG_DBG("Installed slave config %p:"
 			    " ws/dfs %u/%u, mode %u/%u/%u",
@@ -651,7 +684,7 @@ static int spi_dw_configure(const struct device *dev,
 			     SPI_MODE_LOOP) ? 1 : 0,
 			    config->slave);
 	}
-
+#endif
 	return 0;
 }
 
@@ -690,7 +723,7 @@ static void spi_dw_update_txftlr(const struct device *dev,
 		}
 	}
 
-	LOG_DBG("TxFTLR: %u", reg_data);
+	//LOG_DBG("TxFTLR: %u", reg_data);
 
 	write_txftlr(dev, reg_data);
 }
@@ -835,7 +868,7 @@ static int transceive(const struct device *dev,
 		}
 	}
 
-	LOG_DBG("Enabling controller");
+	//LOG_DBG("Enabling controller");
 	set_bit_ssienr(dev);
 
 	/* Do a dummy write in case of rx only */
@@ -866,7 +899,7 @@ static int spi_dw_transceive(const struct device *dev,
 			     const struct spi_buf_set *tx_bufs,
 			     const struct spi_buf_set *rx_bufs)
 {
-	LOG_DBG("%p, %p, %p", dev, tx_bufs, rx_bufs);
+	//LOG_DBG("%p, %p, %p", dev, tx_bufs, rx_bufs);
 
 	return transceive(dev, config, tx_bufs, rx_bufs, false, NULL, NULL);
 }
@@ -906,8 +939,8 @@ void spi_dw_isr(const struct device *dev)
 
 	int_status = read_isr(dev);
 
-	LOG_DBG("SPI %p int_status 0x%x - (tx: %d, rx: %d)", dev, int_status,
-		read_txflr(dev), read_rxflr(dev));
+	// LOG_DBG("SPI %p int_status 0x%x - (tx: %d, rx: %d)", dev, int_status,
+	// 	read_txflr(dev), read_rxflr(dev));
 
 	if (int_status & DW_SPI_ISR_ERRORS_MASK) {
 		error = -EIO;
@@ -1000,20 +1033,124 @@ int spi_dw_init(const struct device *dev)
 	return 0;
 }
 
-#define SPI_DW_INST_DMA_IS_ENABLED(inst)                                       \
-			UTIL_OR(DT_INST_DMAS_HAS_NAME(inst, txdma),                        \
+#if defined CONFIG_PM_DEVICE
+
+/** SPI DW: Suspend */
+static int spi_dw_suspend(const struct device *dev)
+{
+        int ret;
+	const struct spi_dw_config *info = dev->config;
+
+	LOG_DBG("Designware SPI driver Suspending..");
+	if (pm_device_is_busy(dev)) {
+		LOG_DBG("Currently SPI on Transferring ...");
+		return -EBUSY;
+	}
+
+	LOG_DBG("No SPI Transactions !!!");
+
+#if defined(CONFIG_PINCTRL)
+	/* Apply sleep pin configuration if available */
+	if (info->pcfg != NULL) {
+		ret = pinctrl_apply_state(info->pcfg, PINCTRL_STATE_SLEEP);
+		if (ret < 0 && ret != -ENOENT) {
+			/* Ignore -ENOENT (sleep state not defined) */
+			return ret;
+		}
+	}
+#endif
+	if(!info->clock_dev) {
+		ret = clock_control_off(info->clock_dev, info->clock_subsys);
+		if (ret != 0 && ret != -EALREADY) {
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/** SPI DW: Resume */
+static int spi_dw_resume(const struct device *dev)
+{
+        int ret;
+	const struct spi_dw_config *info = dev->config;
+
+	LOG_DBG("Designware SPI driver Resuming");
+
+#if defined(CONFIG_PINCTRL)
+	/* Apply sleep pin configuration if available */
+	if (info->pcfg != NULL) {
+		ret = pinctrl_apply_state(info->pcfg, PINCTRL_STATE_DEFAULT);
+		if (ret < 0 && ret != -ENOENT) {
+			/* Ignore -ENOENT (sleep state not defined) */
+			return ret;
+		}
+	}
+#endif
+	if(!info->clock_dev) {
+		ret = clock_control_on(info->clock_dev, info->clock_subsys);
+		if (ret != 0 && ret != -EALREADY) {
+			return -EINVAL;
+		}
+	}
+
+	return 0;
+}
+
+/**
+ * @brief SPI DW PM device action handler
+ *
+ * Handles power management state transitions for the SPI device.
+ * Coordinates with power domain via PM framework.
+ *
+ * @param dev SPI device struct
+ * @param action PM device action
+ *
+ * @return 0 if successful, negative errno otherwise
+ */
+static int spi_dw_pm_action(const struct device *dev, enum pm_device_action action)
+{
+	int ret = 0;
+
+	switch (action) {
+	case PM_DEVICE_ACTION_RESUME:
+		/* Device is powered - restore SPI state */
+		ret = spi_dw_resume(dev);
+		break;
+
+	case PM_DEVICE_ACTION_SUSPEND:
+		/* Save SPI state and prepare for power down */
+		ret = spi_dw_suspend(dev);
+		break;
+
+	case PM_DEVICE_ACTION_TURN_OFF:
+	case PM_DEVICE_ACTION_TURN_ON:
+		/* Power domain handling is automatic via PM framework */
+		break;
+
+	default:
+		ret = -ENOTSUP;
+		break;
+	}
+
+	return ret;
+}
+#endif /* CONFIG_PM_DEVICE */
+
+#define SPI_DW_INST_DMA_IS_ENABLED(inst)                                               \
+			UTIL_OR(DT_INST_DMAS_HAS_NAME(inst, txdma),                    \
 				DT_INST_DMAS_HAS_NAME(inst, rxdma))
 
-#define SPI_DW_DMA_INIT(inst)                                                  \
-	IF_ENABLED(DT_INST_DMAS_HAS_NAME(inst, txdma),                             \
+#define SPI_DW_DMA_INIT(inst)                                                          \
+	IF_ENABLED(DT_INST_DMAS_HAS_NAME(inst, txdma),                                 \
 		(.dma_tx.enabled = 1,                                                  \
 		 .dma_tx.ch = DT_INST_DMAS_CELL_BY_NAME(inst, txdma, channel),         \
 		 .dma_tx.periph = DT_INST_DMAS_CELL_BY_NAME(inst, txdma, periph),))    \
-	IF_ENABLED(DT_INST_DMAS_HAS_NAME(inst, rxdma),                             \
+	IF_ENABLED(DT_INST_DMAS_HAS_NAME(inst, rxdma),                                 \
 		(.dma_rx.enabled = 1,                                                  \
 		 .dma_rx.ch = DT_INST_DMAS_CELL_BY_NAME(inst, rxdma, channel),         \
 		 .dma_rx.periph = DT_INST_DMAS_CELL_BY_NAME(inst, rxdma, periph),))    \
-	COND_CODE_1(DT_INST_DMAS_HAS_NAME(inst, txdma),                            \
+	COND_CODE_1(DT_INST_DMAS_HAS_NAME(inst, txdma),                                \
 		(.dma_dev = DEVICE_DT_GET(DT_INST_DMAS_CTLR_BY_NAME(inst, txdma)),),   \
 		(.dma_dev = DEVICE_DT_GET(DT_INST_DMAS_CTLR_BY_NAME(inst, rxdma)),))
 
@@ -1092,10 +1229,21 @@ COND_CODE_1(IS_EQ(DT_NUM_IRQS(DT_DRV_INST(inst)), 1),              \
 	};                                                                                  \
 	static const struct spi_dw_config spi_dw_config_##inst = {                          \
 		DEVICE_MMIO_ROM_INIT(DT_DRV_INST(inst)),                                    \
-		.clock_frequency = COND_CODE_1(                                             \
-			DT_NODE_HAS_PROP(DT_INST_PHANDLE(inst, clocks), clock_frequency),   \
-			(DT_INST_PROP_BY_PHANDLE(inst, clocks, clock_frequency)),           \
-			(DT_INST_PROP(inst, clock_frequency))),                             \
+        	COND_CODE_1(									\
+        		DT_NODE_HAS_PROP(DT_INST_PHANDLE(inst, clocks), clock_frequency),	\
+        		(									\
+        			.clock_frequency =						\
+        				DT_INST_PROP_BY_PHANDLE(inst, clocks, clock_frequency),	\
+        			.clock_dev = NULL,						\
+        			.clock_subsys = NULL,						\
+        		),									\
+        		(									\
+        			.clock_frequency = 0,						\
+        			.clock_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR(inst)),		\
+        			.clock_subsys =							\
+        				(clock_control_subsys_t)DT_INST_PHA(inst, clocks, clkid),\
+        		)									\
+        	)                                                                           \
 		.config_func = spi_dw_irq_config_##inst,                                    \
 		.serial_target = DT_INST_PROP(inst, serial_target),                         \
 		.fifo_depth = DT_INST_PROP(inst, fifo_depth),                               \
@@ -1114,13 +1262,14 @@ COND_CODE_1(IS_EQ(DT_NUM_IRQS(DT_DRV_INST(inst)), 1),              \
 			.set_bit_func = reg_set_bit,                                        \
 			.clear_bit_func = reg_clear_bit,                                    \
 			.test_bit_func = reg_test_bit,))                                    \
-		IF_ENABLED(CONFIG_SPI_DW_USE_DMA,					\
-		    (COND_CODE_1(SPI_DW_INST_DMA_IS_ENABLED(inst),			\
-		    (SPI_DW_DMA_INIT(inst)), ())))					\
+		IF_ENABLED(CONFIG_SPI_DW_USE_DMA,					    \
+		    (COND_CODE_1(SPI_DW_INST_DMA_IS_ENABLED(inst),			    \
+		    (SPI_DW_DMA_INIT(inst)), ())))					    \
 	};                                                                                  \
+	PM_DEVICE_DT_INST_DEFINE(inst, spi_dw_pm_action);				    \
 	SPI_DEVICE_DT_INST_DEFINE(inst,                                                     \
 		spi_dw_init,                                                                \
-		NULL,                                                                       \
+		PM_DEVICE_DT_INST_GET(inst),                                                \
 		&spi_dw_data_##inst,                                                        \
 		&spi_dw_config_##inst,                                                      \
 		POST_KERNEL,                                                                \
