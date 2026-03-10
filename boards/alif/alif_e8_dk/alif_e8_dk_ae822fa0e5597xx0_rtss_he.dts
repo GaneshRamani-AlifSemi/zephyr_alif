@@ -64,7 +64,7 @@
 
 &ospi1 {
 	/* External Flash on OSPI */
-	ospi_flash:ospi_flash@0 {
+	ospi_flash: ospi_flash@0 {
 		compatible = "issi,xspi-flash-controller";
 		reg = <0x0>;
 		erase-value = <0xff>;
@@ -83,6 +83,7 @@
 			erase-block-size = <DT_SIZE_K(4)>;
 			write-block-size = <1>;
 		};
+		status = "disabled";
 	};
 };
 
@@ -93,4 +94,3 @@
 &uart2 {
 	status = "okay";
 };
-
