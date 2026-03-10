@@ -491,26 +491,6 @@
 			slew-rate = <0x1>;
 		};
 	};
-	pinctrl_flash:pinctrl_flash {
-		group0 {
-			pinmux = <PIN_P5_5__OSPI1_SCLK_C>,
-				 <PIN_P5_6__OSPI1_RXDS_C>,
-				 <PIN_P5_7__OSPI1_SS0_C>,
-				 <PIN_P9_5__OSPI1_D0_C>,
-				 <PIN_P9_6__OSPI1_D1_C>,
-				 <PIN_P9_7__OSPI1_D2_C>,
-				 <PIN_P10_0__OSPI1_D3_C>,
-				 <PIN_P10_1__OSPI1_D4_C>,
-				 <PIN_P10_2__OSPI1_D5_C>,
-				 <PIN_P10_3__OSPI1_D6_C>,
-				 <PIN_P10_4__OSPI1_D7_C>,
-				 <PIN_P8_0__OSPI1_SCLKN_C>,
-				 <PIN_P10_7__UART7_RX_A> ;
-			read-enable = <0x1>;
-			drive-strength = <12>;
-			slew-rate = <0x1>;
-		};
-	};
 
 	pinctrl_gpio0:pinctrl_gpio0 {
 		group0 {
