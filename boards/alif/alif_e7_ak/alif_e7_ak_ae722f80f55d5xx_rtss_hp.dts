@@ -76,5 +76,7 @@
 			erase-block-size = <DT_SIZE_K(4)>;
 			write-block-size = <2>;
 		};
+
+		status = "disabled";
 	};
 };
