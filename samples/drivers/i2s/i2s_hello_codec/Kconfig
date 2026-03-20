@@ -17,15 +17,3 @@ config SAMPLE_FREQ
 	help
 	  Sample frequency of the system.
 
-config USE_DMIC
-	bool "Use DMIC as an audio input"
-
-if USE_DMIC
-
-config DMIC_CHANNELS
-	int "Number of DMIC channels"
-	default 1
-	help
-	  Count of DMIC channels to capture and process.
-
-endif

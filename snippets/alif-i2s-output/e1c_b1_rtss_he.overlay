@@ -25,16 +25,15 @@
 	};
 };
 
+
+
 &i2c1 {
-       status = "okay";
+	/*clock-frequency = <I2C_BITRATE_STANDARD>;*/
+	status = "okay";
 
-       audio_codec: wm8904@1a {
-               compatible = "wolfson,wm8904";
-               reg = <0x1a 0 0>;
-
-               clock-source = "MCLK";
-
-               //clocks = <&clkctl0 MCUX_AUDIO_MCLK>;
-               //clock-names = "mclk";
-       };
+	audio_codec: wm8904@1a {
+		compatible = "cirrus,wm8904";
+		reg = <0x1a>;
+		status = "okay";
+	};
 };
