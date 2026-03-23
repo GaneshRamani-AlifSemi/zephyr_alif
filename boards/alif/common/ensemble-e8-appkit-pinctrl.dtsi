@@ -185,7 +185,7 @@
 				 <PIN_P7_3__I2C1_SCL_C>;
 
 			read-enable = <0x1>;
-			driver-state-control = <0x2>;
+			driver-state-control = <0x1>;
 		};
 	};
 

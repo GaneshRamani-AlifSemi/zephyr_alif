@@ -1,0 +1,37 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Alif Semiconductor
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+        aliases {
+                i2s-codec-tx = &i2s2;
+        };
+};
+
+&i2s2{
+        status ="okay";
+};
+
+
+/*&pinctrl {
+*	pinctrl_i2s2:pinctrl_i2s2 {
+*		group0 {
+*			pinmux = < PIN_P8_1__I2S2_SDI_A >,
+*				< PIN_P8_2__I2S2_SDO_A >,
+*				< PIN_P8_3__I2S2_SCLK_A >,
+*				< PIN_P8_4__I2S2_WS_A >;
+*		};
+*	};
+*};
+*/
+
+&i2c1 {
+	status = "okay";
+
+	audio_codec: wm8904@1a {
+		compatible = "cirrus,wm8904";
+		reg = <0x1a>;
+		status = "okay";
+	};
+};

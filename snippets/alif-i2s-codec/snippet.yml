@@ -1,0 +1,9 @@
+name: alif-i2s-codec
+boards:
+  /alif_(e1c|b1)_dk.*/:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: e1c_b1_rtss.overlay
+
+  /alif_(e4|e8)_ak.*/:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: e4_e8_rtss.overlay
