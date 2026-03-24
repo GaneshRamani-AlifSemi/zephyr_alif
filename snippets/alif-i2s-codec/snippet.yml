@@ -6,4 +6,8 @@ boards:
 
   /alif_(e4|e8)_ak.*/:
     append:
-      EXTRA_DTC_OVERLAY_FILE: e4_e8_rtss.overlay
+      EXTRA_DTC_OVERLAY_FILE: e4_e8_rtss_ak.overlay
+
+  /alif_(e4|e8)_dk.*/:
+    append:
+      EXTRA_DTC_OVERLAY_FILE: e4_e8_rtss_dk.overlay

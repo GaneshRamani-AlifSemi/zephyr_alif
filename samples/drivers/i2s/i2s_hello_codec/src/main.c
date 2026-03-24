@@ -11,8 +11,6 @@
 #include <zephyr/sys/printk.h>
 #include <zephyr/sys/util.h>
 
-#include "hello_sample.h"
-
 #define I2S_CODEC_TX DT_ALIAS(i2s_codec_tx)
 
 #define SAMPLE_FREQUENCY CONFIG_SAMPLE_FREQ
@@ -29,7 +27,11 @@
 #define BLOCK_COUNT 8U
 #define TIMEOUT_MS 2000U
 
-#define HELLO_SAMPLE_COUNT ARRAY_SIZE(ulHelloSamples24bit48khz)
+#define TONE_HZ 1000U
+#define TONE_HIGH_LEVEL 0x500000U
+#define TONE_LOW_LEVEL 0xB00000U
+#define TONE_TOGGLE_FRAMES MAX(1U, SAMPLE_FREQUENCY / (TONE_HZ * 2U))
+#define TONE_TOTAL_FRAMES (SAMPLE_FREQUENCY * 2U)
 
 K_MEM_SLAB_DEFINE_STATIC(tx_mem_slab, BLOCK_SIZE, BLOCK_COUNT, 4);
 
@@ -83,13 +85,15 @@ static int configure_i2s_tx(const struct device *i2s_dev)
 	return 0;
 }
 
-static size_t fill_hello_block(uint32_t *tx_block, size_t sample_offset)
+static size_t fill_tone_block(uint32_t *tx_block, size_t sample_offset)
 {
 	const size_t frames = MIN((size_t)FRAMES_PER_BLOCK,
-				 HELLO_SAMPLE_COUNT - sample_offset);
+				 TONE_TOTAL_FRAMES - sample_offset);
 
 	for (size_t i = 0; i < frames; ++i) {
-		const uint32_t sample = ulHelloSamples24bit48khz[sample_offset + i];
+		const size_t frame_index = sample_offset + i;
+		const bool high = (((frame_index / TONE_TOGGLE_FRAMES) & 0x1U) == 0U);
+		const uint32_t sample = high ? TONE_HIGH_LEVEL : TONE_LOW_LEVEL;
 
 		tx_block[2U * i] = sample;
 		tx_block[(2U * i) + 1U] = sample;
@@ -98,12 +102,12 @@ static size_t fill_hello_block(uint32_t *tx_block, size_t sample_offset)
 	return frames;
 }
 
-static int play_hello_sample(const struct device *i2s_dev)
+static int play_tone_sample(const struct device *i2s_dev)
 {
 	size_t sample_offset = 0U;
 	bool started = false;
 
-	while (sample_offset < HELLO_SAMPLE_COUNT) {
+	while (sample_offset < TONE_TOTAL_FRAMES) {
 		void *tx_block;
 		size_t frames;
 		size_t bytes;
@@ -115,7 +119,7 @@ static int play_hello_sample(const struct device *i2s_dev)
 			return ret;
 		}
 
-		frames = fill_hello_block((uint32_t *)tx_block, sample_offset);
+		frames = fill_tone_block((uint32_t *)tx_block, sample_offset);
 		bytes = frames * CHANNEL_COUNT * BYTES_PER_CHANNEL_SAMPLE;
 
 		ret = i2s_write(i2s_dev, tx_block, bytes);
@@ -148,7 +152,7 @@ int main(void)
 	const struct device *const codec_dev = DEVICE_DT_GET(DT_NODELABEL(audio_codec));
 	int ret;
 
-	printk("Playing HelloSample at %u Hz\n", SAMPLE_FREQUENCY);
+	printk("Playing tone sample at %u Hz\n", SAMPLE_FREQUENCY);
 
 	if (!device_is_ready(i2s_dev_codec)) {
 		printk("%s is not ready\n", i2s_dev_codec->name);
@@ -173,15 +177,15 @@ int main(void)
 		return ret;
 	}
 
-	ret = play_hello_sample(i2s_dev_codec);
+	ret = play_tone_sample(i2s_dev_codec);
 	if (ret < 0) {
 		audio_codec_stop_output(codec_dev);
-		printk("HelloSample playback failed: %d\n", ret);
+		printk("Tone sample playback failed: %d\n", ret);
 		return ret;
 	}
 
 	audio_codec_stop_output(codec_dev);
-	printk("HelloSample playback complete\n");
+	printk("Tone sample playback complete\n");
 
 	return 0;
 }

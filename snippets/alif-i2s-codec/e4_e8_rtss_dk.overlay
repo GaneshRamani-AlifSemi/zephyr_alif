@@ -1,0 +1,25 @@
+/*
+ * SPDX-FileCopyrightText: Copyright Alif Semiconductor
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+/ {
+        aliases {
+                i2s-codec-tx = &i2s3;
+        };
+};
+
+&i2s3{
+        status ="okay";
+};
+
+
+&i2c1 {
+	status = "okay";
+
+	audio_codec: wm8904@1a {
+		compatible = "cirrus,wm8904";
+		reg = <0x1a>;
+		status = "okay";
+	};
+};
