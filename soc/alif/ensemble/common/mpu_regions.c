@@ -80,12 +80,14 @@
 #endif
 
 static const struct arm_mpu_region mpu_regions[] = {
+#if DT_NODE_EXISTS(DT_NODELABEL(mram_storage))
 	/* Region 0: Executable MRAM */
 	MPU_REGION_ENTRY("FLASH_MRAM", FLASH_MRAM_BASE_ADDR,
 			 REGION_FLASH_ATTR(FLASH_MRAM_BASE_ADDR, FLASH_MRAM_SIZE)),
 	/* Region 1: Writable MRAM (device mode for write access) */
 	MPU_REGION_ENTRY("DEVICE_MRAM", DEVICE_MRAM_BASE_ADDR,
 			 REGION_DEVICE_ATTR(DEVICE_MRAM_BASE_ADDR, DEVICE_MRAM_SIZE)),
+#endif
 	/* Region 2 */
 	MPU_REGION_ENTRY("ITCM", DT_REG_ADDR(DT_NODELABEL(itcm)),
 			 REGION_FLASH_ATTR(DT_REG_ADDR(DT_NODELABEL(itcm)),
