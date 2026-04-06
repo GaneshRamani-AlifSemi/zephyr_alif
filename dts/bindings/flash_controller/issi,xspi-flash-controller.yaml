@@ -10,6 +10,11 @@ include: flash-controller.yaml
 #on-bus: ospi
 
 properties:
+  reset-gpios:
+    type: phandle-array
+    required: false
+    description: Optional flash reset GPIO
+
   cs-gpios:
     type: phandle-array
     required: false
