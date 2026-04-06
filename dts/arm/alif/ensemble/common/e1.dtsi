@@ -1668,13 +1668,17 @@
 		status = "disabled";
 	};
 	ospi0: ospi0@83000000 {
-		compatible = "snps,designware-ospi";
+		compatible = "snps,designware-ssi", "snps,designware-ospi";
 		reg = <0x83000000 0x1000>;
 		pinctrl-0 = <&pinctrl_ospi0>;
 		pinctrl-names = "default";
 		interrupt-parent = <&nvic>;
 		interrupts = <96 ALIF_DEFAULT_IRQ_PRIORITY>;
 		aes-reg = <0x83001000 0x100>;
+		packet-data-limit = <65536>;
+		fifo-depth = <128>;
+		op-mode = "MSPI_CONTROLLER";
+		duplex = "MSPI_FULL_DUPLEX";
 		cs-pin = <0>;
 		status = "disabled";
 	};
