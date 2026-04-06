@@ -19,7 +19,6 @@ menuconfig OSPI_FLASH
 	select FLASH_HAS_PAGE_LAYOUT
 	select EVENTS
 	select FLASH_HAS_EXPLICIT_ERASE
-	select USE_ALIF_HAL_OSPI
 	help
 	  Enable OSPI flash support on Alif SoCs.
 	  Select the flash vendor below.
@@ -28,6 +27,7 @@ config OSPI_FLASH_MX66UW
 	bool "Macronix MX66UW (1G/2G)"
 	depends on DT_HAS_MXICY_MX66UW_FLASH_ENABLED
 	default y
+	select USE_ALIF_HAL_OSPI
 	help
 	  Enables Macronix MX66UW flash driver.
 
@@ -35,8 +35,11 @@ config OSPI_FLASH_IS25WX
 	bool "ISSI IS25WX (128/256/512)"
 	depends on DT_HAS_ISSI_XSPI_FLASH_CONTROLLER_ENABLED
 	default y
+	select MSPI
+	select FLASH_JESD216
+	select FLASH_JESD216_API
 	help
-	  Enables ISSI IS25WX flash driver.
+	  Enables ISSI IS25WX flash driver using the MSPI controller path.
 
 if OSPI_FLASH
 
