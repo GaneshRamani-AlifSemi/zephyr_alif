@@ -209,7 +209,7 @@ static void isp_bottom_half(const struct device *dev)
 	int ret;
 
 	/* Do bottom half processing of all the modules at the end of frame. */
-	isp_vsi_bottom_half(&data->init_cfg, data->mi_mis);
+	isp_vsi_bottom_half(dev, &data->init_cfg, data->mi_mis);
 
 
 	vbuf = k_fifo_peek_head(&data->fifo_in);

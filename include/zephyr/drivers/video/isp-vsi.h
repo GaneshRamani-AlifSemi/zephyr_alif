@@ -96,7 +96,8 @@ struct isp_config_params {
 int isp_vsi_init(struct isp_config_params *init_cfg);
 int isp_vsi_update_cfg(struct isp_config_params *init_cfg);
 int isp_vsi_uninit(struct isp_config_params *init_cfg);
-void isp_vsi_bottom_half(struct isp_config_params *init_cfg, uint32_t mi_mis);
+void isp_vsi_bottom_half(const struct device *dev,
+		struct isp_config_params *init_cfg, uint32_t mi_mis);
 int isp_vsi_start(struct isp_config_params *init_cfg);
 int isp_vsi_stop(struct isp_config_params *init_cfg);
 int isp_vsi_enqueue(struct isp_config_params *init_cfg,
