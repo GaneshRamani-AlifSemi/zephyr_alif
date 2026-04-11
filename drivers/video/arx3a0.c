@@ -1160,11 +1160,21 @@ static int arx3a0_get_camera_gain(const struct device *dev, uint32_t *gain)
 	return 0;
 }
 
+static int arx3a0_set_camera_exp(const struct device *dev, uint32_t intline)
+{
+	intline &= 0xFFFF;
+
+	return arx3a0_write_reg(dev,
+			ARX3A0_COARSE_INTEGRATION_TIME_REGISTER, 2, &intline);
+}
+
 static int arx3a0_set_ctrl(const struct device *dev, unsigned int cid, void *value)
 {
 	switch (cid) {
 	case VIDEO_CID_GAIN:
 		return arx3a0_set_camera_gain(dev, *(uint32_t *)value);
+	case VIDEO_CID_EXPOSURE:
+		return arx3a0_set_camera_exp(dev, *(uint32_t *)value);
 	default:
 		return -ENOTSUP;
 	}
