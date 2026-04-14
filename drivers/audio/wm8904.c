@@ -489,16 +489,20 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 			  (uint16_t)(dev_cfg->clock_source));
 
 	if (dev_cfg->clock_source == 0) {
-		int err = clock_control_on(dev_cfg->mclk_dev, dev_cfg->mclk_name);
+		if (dev_cfg->mclk_dev == NULL) {
+			LOG_WRN("MCLK clock source not described in devicetree; using app frequency");
+		} else {
+			int err = clock_control_on(dev_cfg->mclk_dev, dev_cfg->mclk_name);
 
-		if (err < 0) {
-			LOG_ERR("MCLK clock source enable fail: %d", err);
-		}
+			if (err < 0) {
+				LOG_ERR("MCLK clock source enable fail: %d", err);
+			}
 
-		err = clock_control_get_rate(dev_cfg->mclk_dev, dev_cfg->mclk_name,
-					     &cfg->mclk_freq);
-		if (err < 0) {
-			LOG_ERR("MCLK clock source freq acquire fail: %d", err);
+			err = clock_control_get_rate(dev_cfg->mclk_dev, dev_cfg->mclk_name,
+						     &cfg->mclk_freq);
+			if (err < 0) {
+				LOG_ERR("MCLK clock source freq acquire fail: %d", err);
+			}
 		}
 	}
 
@@ -672,8 +676,12 @@ static const struct audio_codec_api wm8904_driver_api = {
 	static const struct wm8904_driver_config wm8904_device_config_##n = {                      \
 		.i2c = I2C_DT_SPEC_INST_GET(n),                                                    \
 		.clock_source = DT_INST_PROP_OR(n, clk_source, 0),                                 \
-		.mclk_dev = DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(n, mclk)),                   \
-		.mclk_name = (clock_control_subsys_t)DT_INST_CLOCKS_CELL_BY_NAME(n, mclk, name)};  \
+		.mclk_dev = COND_CODE_1(DT_INST_NODE_HAS_PROP(n, clocks),                          \
+					(DEVICE_DT_GET(DT_INST_CLOCKS_CTLR_BY_NAME(n, mclk))), \
+					(NULL)),                                                 \
+		.mclk_name = COND_CODE_1(DT_INST_NODE_HAS_PROP(n, clocks),                        \
+					 ((clock_control_subsys_t)DT_INST_CLOCKS_CELL_BY_NAME(n, mclk, name)), \
+					 ((clock_control_subsys_t)0))};                                  \
                                                                                                    \
 	DEVICE_DT_INST_DEFINE(n, NULL, NULL, NULL, &wm8904_device_config_##n,        \
 			      POST_KERNEL, CONFIG_AUDIO_CODEC_INIT_PRIORITY, &wm8904_driver_api);
