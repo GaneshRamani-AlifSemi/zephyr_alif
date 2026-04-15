@@ -423,10 +423,6 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 
 	wm8904_soft_reset(dev);
 
-	if (cfg->dai_route == AUDIO_ROUTE_BYPASS) {
-		return 0;
-	}
-
 	/* MCLK_INV=0, SYSCLK_SRC=0, TOCLK_RATE=0, OPCLK_ENA=1,
 	 * CLK_SYS_ENA=1, CLK_DSP_ENA=1, TOCLK_ENA=1
 	 */
@@ -517,6 +513,13 @@ static int wm8904_configure(const struct device *dev, struct audio_codec_cfg *cf
 	}
 
 	switch (cfg->dai_route) {
+	case AUDIO_ROUTE_BYPASS:
+		/* Route the headphone outputs from the analog bypass path. */
+		wm8904_update_reg(dev, WM8904_REG_ANALOG_OUT12_ZC, 0x000FU, 0x000FU);
+		wm8904_configure_output(dev);
+		wm8904_configure_input(dev);
+		break;
+
 	case AUDIO_ROUTE_PLAYBACK:
 		wm8904_configure_output(dev);
 		break;
