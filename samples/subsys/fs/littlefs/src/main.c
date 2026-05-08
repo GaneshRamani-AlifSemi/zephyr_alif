@@ -259,11 +259,15 @@ static int littlefs_flash_erase(unsigned int id)
 	flash_area_close(pfa);
 	return rc;
 }
-#define PARTITION_NODE DT_NODELABEL(lfs1)
+#if DT_HAS_COMPAT_STATUS_OKAY(zephyr_fstab_littlefs)
+#define DECLARE_FSTAB_ENTRY(node_id) FS_FSTAB_DECLARE_ENTRY(node_id);
+DT_FOREACH_STATUS_OKAY(zephyr_fstab_littlefs, DECLARE_FSTAB_ENTRY)
 
-#if DT_NODE_EXISTS(PARTITION_NODE)
-FS_FSTAB_DECLARE_ENTRY(PARTITION_NODE);
-#else /* PARTITION_NODE */
+#define FSTAB_MOUNTPOINT(node_id) &FS_FSTAB_ENTRY(node_id),
+static struct fs_mount_t *mountpoints[] = {
+	DT_FOREACH_STATUS_OKAY(zephyr_fstab_littlefs, FSTAB_MOUNTPOINT)
+};
+#else /* DT_HAS_COMPAT_STATUS_OKAY(zephyr_fstab_littlefs) */
 FS_LITTLEFS_DECLARE_DEFAULT_CONFIG(storage);
 static struct fs_mount_t lfs_storage_mnt = {
 	.type = FS_LITTLEFS,
@@ -271,15 +275,10 @@ static struct fs_mount_t lfs_storage_mnt = {
 	.storage_dev = (void *)FIXED_PARTITION_ID(storage_partition),
 	.mnt_point = "/lfs",
 };
-#endif /* PARTITION_NODE */
-
-	struct fs_mount_t *mountpoint =
-#if DT_NODE_EXISTS(PARTITION_NODE)
-		&FS_FSTAB_ENTRY(PARTITION_NODE)
-#else
-		&lfs_storage_mnt
-#endif
-		;
+static struct fs_mount_t *mountpoints[] = {
+	&lfs_storage_mnt,
+};
+#endif /* DT_HAS_COMPAT_STATUS_OKAY(zephyr_fstab_littlefs) */
 
 static int littlefs_mount(struct fs_mount_t *mp)
 {
@@ -290,19 +289,17 @@ static int littlefs_mount(struct fs_mount_t *mp)
 		return rc;
 	}
 
-	/* Do not mount if auto-mount has been enabled */
-#if !DT_NODE_EXISTS(PARTITION_NODE) ||						\
-	!(FSTAB_ENTRY_DT_MOUNT_FLAGS(PARTITION_NODE) & FS_MOUNT_FLAG_AUTOMOUNT)
-	rc = fs_mount(mp);
-	if (rc < 0) {
-		LOG_PRINTK("FAIL: mount id %" PRIuPTR " at %s: %d\n",
-		       (uintptr_t)mp->storage_dev, mp->mnt_point, rc);
-		return rc;
+	if ((mp->flags & FS_MOUNT_FLAG_AUTOMOUNT) != 0) {
+		LOG_PRINTK("%s automounted\n", mp->mnt_point);
+	} else {
+		rc = fs_mount(mp);
+		if (rc < 0) {
+			LOG_PRINTK("FAIL: mount id %" PRIuPTR " at %s: %d\n",
+			       (uintptr_t)mp->storage_dev, mp->mnt_point, rc);
+			return rc;
+		}
+		LOG_PRINTK("%s mount: %d\n", mp->mnt_point, rc);
 	}
-	LOG_PRINTK("%s mount: %d\n", mp->mnt_point, rc);
-#else
-	LOG_PRINTK("%s automounted\n", mp->mnt_point);
-#endif
 
 	return 0;
 }
@@ -324,7 +321,9 @@ static struct fs_mount_t __mp = {
 	.fs_data = &lfsfs,
 	.flags = FS_MOUNT_FLAG_USE_DISK_ACCESS,
 };
-struct fs_mount_t *mountpoint = &__mp;
+static struct fs_mount_t *mountpoints[] = {
+	&__mp,
+};
 
 static int littlefs_mount(struct fs_mount_t *mp)
 {
@@ -338,18 +337,16 @@ static int littlefs_mount(struct fs_mount_t *mp)
 }
 #endif /* CONFIG_APP_LITTLEFS_STORAGE_BLK_SDMMC */
 
-int main(void)
+static int littlefs_run_on_mountpoint(struct fs_mount_t *mountpoint)
 {
 	char fname1[MAX_PATH_LEN];
 	char fname2[MAX_PATH_LEN];
 	struct fs_statvfs sbuf;
 	int rc;
 
-	LOG_PRINTK("Sample program to r/w files on littlefs\n");
-
 	rc = littlefs_mount(mountpoint);
 	if (rc < 0) {
-		return 0;
+		return rc;
 	}
 
 	snprintf(fname1, sizeof(fname1), "%s/boot_count", mountpoint->mnt_point);
@@ -386,5 +383,26 @@ int main(void)
 out:
 	rc = fs_unmount(mountpoint);
 	LOG_PRINTK("%s unmount: %d\n", mountpoint->mnt_point, rc);
-	return 0;
+	return rc;
+}
+
+int main(void)
+{
+	int rc = 0;
+
+	LOG_PRINTK("Sample program to r/w files on littlefs\n");
+
+	for (size_t i = 0; i < ARRAY_SIZE(mountpoints); i++) {
+		int ret;
+
+		LOG_PRINTK("\n--- littlefs mount point %u/%u ---\n",
+			   (unsigned int)(i + 1), (unsigned int)ARRAY_SIZE(mountpoints));
+
+		ret = littlefs_run_on_mountpoint(mountpoints[i]);
+		if (ret < 0 && rc == 0) {
+			rc = ret;
+		}
+	}
+
+	return rc;
 }
