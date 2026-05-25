@@ -21,8 +21,7 @@
 				 <PIN_P10_2__OSPI1_D5_C>,
 				 <PIN_P10_3__OSPI1_D6_C>,
 				 <PIN_P10_4__OSPI1_D7_C>,
-				 <PIN_P5_6__OSPI1_RXDS_C>,    /* RxDS : Func */
-				 <PIN_P10_7__GPIO>;           /* RxDS : Pin */
+				 <PIN_P10_7__OSPI1_RXDS0_C>;
 			read-enable = <0x1>;
 			drive-strength = <12>;
 			slew-rate = <0x1>;
@@ -48,6 +47,7 @@
 	chosen {
 		zephyr,flash-controller = &ospi_flash;
 		zephyr,flash = &flash_storage;
+		zephyr,code-partition = &slot0_partition;
 	};
 
 	fstab {
@@ -55,18 +55,7 @@
 
 		lfs1: lfs1 {
 			compatible = "zephyr,fstab,littlefs";
-			mount-point = "/lfs1";
-			partition = <&storage_partition>;
-			read-size = <16>;
-			prog-size = <16>;
-			cache-size = <64>;
-			lookahead-size = <32>;
-			block-cycles = <512>;
-		};
-
-		lfs2: lfs2 {
-			compatible = "zephyr,fstab,littlefs";
-			mount-point = "/lfs2";
+			mount-point = "/lfs";
 			partition = <&ospi_storage_partition>;
 			read-size = <16>;
 			prog-size = <16>;
@@ -78,16 +67,6 @@
 };
 
 /delete-node/ &storage_partition;
-
-/* MRAM storage */
-&mram_storage {
-	partitions {
-		storage_partition: partition@1A0000 {
-			label = "storage1";
-			reg = <0x001A0000 DT_SIZE_K(16)>;
-		};
-	};
-};
 
 /* OSPI Flash storage*/
 &flash_storage {

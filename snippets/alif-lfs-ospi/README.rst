@@ -6,12 +6,12 @@ Alif LittleFS support over OSPI Flash
 Overview
 ********
 
-This snippet enables the Zephyr LittleFS sample to run with Alif MRAM and
-OSPI Flash storage nodes.
+This snippet enables the Zephyr LittleFS sample to use OSPI Flash as the
+selected flash device while linking the application image into Alif MRAM.
 
-The LittleFS sample supports multiple storage nodes through
-``zephyr,fstab``. For Alif development kits, this snippet creates one
-LittleFS storage node on MRAM and one LittleFS storage node on OSPI Flash.
+The LittleFS sample discovers its storage through ``zephyr,fstab``. For Alif
+development kits, this snippet creates a LittleFS storage node on OSPI Flash
+and forces the Zephyr application image address to the MRAM code partition.
 
 The snippet:
 
@@ -19,8 +19,10 @@ The snippet:
   ``alif-lfs-ospi.conf``;
 * selects the required OSPI pinctrl and flash overlay for the target board;
 * enables the OSPI flash device node;
-* provides MRAM and OSPI Flash LittleFS mount information through
-  ``zephyr,fstab``.
+* selects OSPI Flash as ``zephyr,flash``;
+* keeps ``zephyr,code-partition`` pointing at the MRAM image slot and overrides
+  ``CONFIG_FLASH_BASE_ADDRESS`` so the Zephyr image still links into MRAM;
+* provides OSPI Flash LittleFS mount information through ``zephyr,fstab``.
 
 The Balletto board family uses ``alif_balletto_dk_rtss_ospi.overlay`` and
 the Ensemble board family uses ``alif_ensemble_dk_rtss_ospi.overlay``.
@@ -28,25 +30,26 @@ the Ensemble board family uses ``alif_ensemble_dk_rtss_ospi.overlay``.
 Storage Layout
 **************
 
-The overlay updates the selected flash device to OSPI flash and creates
-two LittleFS storage nodes:
+The overlay selects OSPI Flash as the default flash device and creates one
+LittleFS storage node:
 
-* ``/lfs1`` on MRAM storage;
-* ``/lfs2`` on OSPI Flash storage.
+* ``/lfs`` on OSPI Flash storage.
 
 .. code-block:: devicetree
 
    chosen {
            zephyr,flash-controller = &ospi_flash;
            zephyr,flash = &flash_storage;
+           zephyr,code-partition = &slot0_partition;
    };
 
-The existing MRAM code partition is left unchanged. Alif development kit
-MRAM is already split into multiple partitions, and this snippet only adds
-the LittleFS storage nodes used by the sample.
+Alif development kit MRAM is already split into boot and image partitions.
+The snippet removes the default MRAM storage partition from the sample layout,
+uses OSPI Flash for LittleFS, and sets ``CONFIG_FLASH_BASE_ADDRESS`` to the
+MRAM base address so the linker still places code in MRAM.
 
-The sample discovers these nodes from ``zephyr,fstab`` and runs the
-LittleFS test flow on each configured mount point.
+The sample discovers this node from ``zephyr,fstab`` and runs the LittleFS
+test flow on the configured mount point.
 
 Building and Running
 ********************
