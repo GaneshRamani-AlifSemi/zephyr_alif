@@ -253,7 +253,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                               self.hp_mram_boot,
                               self.he_bin, self.he_flash_address,
                               self.he_mram_boot,
-                              self.flash_address)
+                              self.flash_address,
+                              self.cfg.build_dir)
 
             # Generate ToC.
             self.check_call(['./' + self.gen_toc, '-f',
@@ -374,24 +375,91 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
             return False
 
     @classmethod
-    def get_itcm_address(cls, logger):
+    def get_itcm_address(cls, logger, build_dir=None):
         """Retrieve itcm address from DTS."""
-        dts_path = os.path.join(cls.zephyr_repo, 'build', 'zephyr', 'zephyr.dts')
+        dt2 = cls._parse_build_dts(logger, build_dir)
+        if dt2 is None:
+            return 0
+
+        try:
+            itcm = cls._get_node_by_label(dt2, 'itcm')
+            addr = cls._dts_property_value(itcm, 'global_base')
+            if addr is None:
+                raise ValueError("DTS itcm global_base property not found")
+            return addr
+        except (AttributeError, KeyError, TypeError, ValueError) as err:
+            logger.error("Parsing itcm address failed: %s", err)
+        return 0
+
+    @classmethod
+    def get_sram0_address(cls, logger, build_dir=None):
+        """Retrieve sram0 base address from DTS reg property."""
+        dt2 = cls._parse_build_dts(logger, build_dir)
+        if dt2 is None:
+            return 0
+
+        try:
+            sram0 = cls._get_node_by_label(dt2, 'sram0')
+            reg = cls._dts_property_value(sram0, 'reg')
+            if reg is None:
+                raise ValueError("DTS sram0 reg property not found")
+            return reg
+        except (AttributeError, KeyError, TypeError, ValueError) as err:
+            logger.error("Parsing sram0 address failed: %s", err)
+        return 0
+
+    @classmethod
+    def _parse_build_dts(cls, logger, build_dir=None):
+        """Parse generated zephyr.dts using fdt."""
+        if build_dir is None:
+            build_dir = os.path.join(cls.zephyr_repo, 'build')
+
+        dts_path = os.path.join(build_dir, 'zephyr', 'zephyr.dts')
 
         try:
             with open(dts_path, "r", encoding="utf-8") as f:
                 dtext = f.read()
         except OSError as err:
             logger.error("DTS read error (%s): %s", dts_path, err)
-            return 0
+            return None
 
         try:
-            dt2 = fdt.parse_dts(dtext)
-            addr = dt2.get_node('soc').get_subnode('itcm@0').get_property('global_base')
-        except (AttributeError, KeyError, TypeError, ValueError) as err:
-            logger.error("Parsing itcm address failed: %s", err)
-            return 0
-        return addr.value
+            return fdt.parse_dts(dtext)
+        except (AttributeError, TypeError, ValueError) as err:
+            logger.error("DTS parse error (%s): %s", dts_path, err)
+            return None
+
+    @staticmethod
+    def _get_node_by_label(dt2, label):
+        getter = getattr(dt2, 'get_node_by_label', None)
+        if callable(getter):
+            node = getter(label)
+            if node is not None:
+                return node
+
+        node = dt2.get_node(label)
+        if node is not None:
+            return node
+
+        raise ValueError(f"DTS node label {label} not found")
+
+    @staticmethod
+    def _dts_property_value(node, name):
+        prop = node.get_property(name)
+        if prop is None:
+            return None
+
+        value = getattr(prop, 'value', prop)
+        if isinstance(value, list):
+            return value[0] if value else None
+        return value
+
+    @classmethod
+    def get_load_address(cls, logger, node_name, build_dir=None):
+        """Retrieve load address for local non-MRAM boot image."""
+        if node_name in ("HP_APP", "HE_APP"):
+            return cls.get_itcm_address(logger, build_dir)
+        return cls.get_sram0_address(logger, build_dir)
 
     @classmethod
     def prepare_json(cls, logger, build_core, fls_addr, fls_size,
@@ -401,7 +469,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                      hp_mram_boot=False,
                      he_bin=None, he_flash_address=None,
                      he_mram_boot=False,
-                     flash_address=None):
+                     flash_address=None,
+                     build_dir=None):
         """Prepare JSON for ToC generation."""
         cfg_ip_path = os.path.join(cls.exe_dir, cls.cfg_ip_file.lstrip('/'))
         cfg_op_path = os.path.join(cls.exe_dir, cls.cfg_op_file.lstrip('/'))
@@ -451,7 +520,7 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                                      mram_boot)
 
         if not cls._apply_local_build_image(logger, json_data, local_node_name,
-                                            fls_addr, fls_size):
+                                            fls_addr, fls_size, build_dir):
             return
 
         try:
@@ -547,7 +616,7 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
     @classmethod
     def _apply_local_build_image(cls, logger, json_data, node_name, fls_addr,
-                                 fls_size):
+                                 fls_size, build_dir=None):
         cpu_node = json_data[node_name]
 
         # update binary name
@@ -555,12 +624,12 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
         # verify flash address
         if fls_addr == 0 :
-            itcm_addr = cls.get_itcm_address(logger)
-            if itcm_addr == 0:
-                logger.error("err addr 0x%x", itcm_addr)
+            load_addr = cls.get_load_address(logger, node_name, build_dir)
+            if load_addr == 0:
+                logger.error("err addr 0x%x", load_addr)
                 return False
-            logger.info("itcm global address 0x%x", itcm_addr)
-            cpu_node["loadAddress"] = hex(itcm_addr)
+            logger.info("%s load address 0x%x", node_name, load_addr)
+            cpu_node["loadAddress"] = hex(load_addr)
             cpu_node["flags"] = ["load", "boot"]
             return True
 
