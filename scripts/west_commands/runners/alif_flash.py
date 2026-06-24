@@ -22,6 +22,11 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
     exe_dir = os.getenv("ALIF_SE_TOOLS_DIR")
 
     mram_base_addr = int('0x80000000', 0)
+    default_flash_addresses = {
+        "A32_APP": int('0x80100000', 0),
+        "HP_APP": int('0x80200000', 0),
+        "HE_APP": int('0x80000000', 0),
+    }
 
     cfg_ip_file = '/build/config/app-cpu-stubs.json'
     cfg_op_file = '/build/config/tmp-cpu-stubs.json'
@@ -44,7 +49,17 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                  com_port=None,
                  toc_create=None,
                  toc_write=None,
-                 tool_opt=None):
+                 tool_opt=None,
+                 a32_bin=None,
+                 a32_flash_address=None,
+                 a32_mram_boot=None,
+                 hp_bin=None,
+                 hp_flash_address=None,
+                 hp_mram_boot=None,
+                 he_bin=None,
+                 he_flash_address=None,
+                 he_mram_boot=None,
+                 flash_address=None):
 
         super().__init__(cfg)
 
@@ -77,6 +92,16 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         self.commander = commander or default_jlink_exe
         self.loader = loader
         self.tool_opt = tool_opt or []
+        self.a32_bin = os.path.abspath(a32_bin) if a32_bin else None
+        self.a32_flash_address = a32_flash_address
+        self.a32_mram_boot = False if a32_mram_boot is None else bool(a32_mram_boot)
+        self.hp_bin = os.path.abspath(hp_bin) if hp_bin else None
+        self.hp_flash_address = hp_flash_address
+        self.hp_mram_boot = False if hp_mram_boot is None else bool(hp_mram_boot)
+        self.he_bin = os.path.abspath(he_bin) if he_bin else None
+        self.he_flash_address = he_flash_address
+        self.he_mram_boot = False if he_mram_boot is None else bool(he_mram_boot)
+        self.flash_address = flash_address or []
 
     @classmethod
     def name(cls):
@@ -121,11 +146,32 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         parser.add_argument('--commander', default=default_jlink_exe,
                             help=f'''J-Link Commander, default is
                             {default_jlink_exe}''')
+        parser.add_argument('--a32-bin', help='A32 application binary to include in ToC')
+        parser.add_argument('--a32-flash-address', type=lambda x: int(x, 0),
+                            help='MRAM address for --a32-bin, default is 0x80100000')
+        parser.add_argument('--a32-mram-boot', '-a32-mram-boot',
+                            default=0, type=int, choices=(0, 1),
+                            help='set to 1 to boot --a32-bin from MRAM')
+        parser.add_argument('--hp-bin', help='M55 HP application binary to include in ToC')
+        parser.add_argument('--hp-flash-address', type=lambda x: int(x, 0),
+                            help='MRAM address for --hp-bin, default is 0x80200000')
+        parser.add_argument('--hp-mram-boot', '-hp-mram-boot',
+                            default=0, type=int, choices=(0, 1),
+                            help='set to 1 to boot --hp-bin from MRAM')
+        parser.add_argument('--he-bin', help='M55 HE application binary to include in ToC')
+        parser.add_argument('--he-flash-address', type=lambda x: int(x, 0),
+                            help='MRAM address for --he-bin, default is 0x80000000')
+        parser.add_argument('--he-mram-boot', '-he-mram-boot',
+                            default=0, type=int, choices=(0, 1),
+                            help='set to 1 to boot --he-bin from MRAM')
+        parser.add_argument('--flash-address', action='append', type=lambda x: int(x, 0),
+                            help='MRAM address for supplied CPU binaries in A32, HP, HE order')
 
         parser.set_defaults(reset=True)
 
     @classmethod
     def do_create(cls, cfg, args):
+        cls._validate_cpu_bin_args(args)
         return AlifImageBinaryRunner(
             cfg,
             device=args.device,
@@ -145,7 +191,26 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
             toc_create=getattr(args, "toc_create", None),
             toc_write=getattr(args, "toc_write", None),
             tool_opt=getattr(args, "tool_opt", None),
+            a32_bin=getattr(args, "a32_bin", None),
+            a32_flash_address=getattr(args, "a32_flash_address", None),
+            a32_mram_boot=getattr(args, "a32_mram_boot", None),
+            hp_bin=getattr(args, "hp_bin", None),
+            hp_flash_address=getattr(args, "hp_flash_address", None),
+            hp_mram_boot=getattr(args, "hp_mram_boot", None),
+            he_bin=getattr(args, "he_bin", None),
+            he_flash_address=getattr(args, "he_flash_address", None),
+            he_mram_boot=getattr(args, "he_mram_boot", None),
+            flash_address=getattr(args, "flash_address", None),
         )
+
+    @staticmethod
+    def _validate_cpu_bin_args(args):
+        for cpu in ("a32", "hp", "he"):
+            binary = getattr(args, f"{cpu}_bin", None)
+            address = getattr(args, f"{cpu}_flash_address", None)
+
+            if binary is None and address is not None:
+                raise ValueError(f"--{cpu}-flash-address requires --{cpu}-bin")
 
     def flash(self, **kwargs):
         """Flash the binary using Alif SE tools."""
@@ -159,7 +224,10 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
         self.logger.info("Binary address %s and size %s KB", hex(fls_addr), fls_size)
 
-        if self.build_conf.getboolean('CONFIG_RTSS_HP'):
+        if self.build_conf.getboolean('CONFIG_APSS'):
+            self.logger.info("..build for APSS Core")
+            build_core = "a32"
+        elif self.build_conf.getboolean('CONFIG_RTSS_HP'):
             self.logger.info("..build for HighPerformance Core")
             build_core = "hp"
         else:
@@ -178,7 +246,14 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
             self.logger.info("Changed working directory to %s", self.exe_dir)
 
             # Prepare json to create AToC.
-            self.prepare_json(self.logger, build_core, fls_addr, fls_size)
+            self.prepare_json(self.logger, build_core, fls_addr, fls_size,
+                              self.a32_bin, self.a32_flash_address,
+                              self.a32_mram_boot,
+                              self.hp_bin, self.hp_flash_address,
+                              self.hp_mram_boot,
+                              self.he_bin, self.he_flash_address,
+                              self.he_mram_boot,
+                              self.flash_address)
 
             # Generate ToC.
             self.check_call(['./' + self.gen_toc, '-f',
@@ -319,7 +394,14 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         return addr.value
 
     @classmethod
-    def prepare_json(cls, logger, build_core, fls_addr, fls_size):
+    def prepare_json(cls, logger, build_core, fls_addr, fls_size,
+                     a32_bin=None, a32_flash_address=None,
+                     a32_mram_boot=False,
+                     hp_bin=None, hp_flash_address=None,
+                     hp_mram_boot=False,
+                     he_bin=None, he_flash_address=None,
+                     he_mram_boot=False,
+                     flash_address=None):
         """Prepare JSON for ToC generation."""
         cfg_ip_path = os.path.join(cls.exe_dir, cls.cfg_ip_file.lstrip('/'))
         cfg_op_path = os.path.join(cls.exe_dir, cls.cfg_op_file.lstrip('/'))
@@ -331,37 +413,166 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
             logger.error("Can't open file to read %s: %s", cfg_ip_path, err)
             return
 
-        if build_core == "hp":
-            cpu_node = json_data["HP_APP"]
-        else:
-            cpu_node = json_data["HE_APP"]
+        local_node_name = cls._cpu_node_name(build_core)
 
-        # update binary name
-        cpu_node["binary"] = "zephyr.bin"
+        mram_ranges = []
 
-        # verify flash address
-        if fls_addr == 0:
-            itcm_addr = cls.get_itcm_address(logger)
-            if itcm_addr == 0:
-                logger.error("err addr 0x%x", itcm_addr)
-                return
-            logger.info("itcm global address 0x%x", itcm_addr)
-            cpu_node["loadAddress"] = hex(itcm_addr)
-            cpu_node["flags"] = ["load", "boot"]
+        if fls_addr != 0 and fls_addr >= cls.mram_base_addr:
+            local_bin = os.path.join(cls.exe_dir, 'build/images', 'zephyr.bin')
+            local_size = cls._binary_size(local_node_name, local_bin)
 
-        elif fls_addr >= cls.mram_base_addr and fls_addr <= cls.mram_base_addr + (fls_size * 1024):
-            cpu_node.pop('loadAddress', None)
-            cpu_node['mramAddress'] = hex(fls_addr)
-            cpu_node['flags'] = ["boot"]
+            cls._add_mram_range(local_node_name, fls_addr,
+                                fls_addr + local_size, fls_size,
+                                mram_ranges)
 
-        else:
-            raise NotImplementedError(f'Unsupported address base 0x{fls_addr:x} to write')
+        cpu_args = [
+            ("A32_APP", a32_bin, a32_flash_address, a32_mram_boot),
+            ("HP_APP", hp_bin, hp_flash_address, hp_mram_boot),
+            ("HE_APP", he_bin, he_flash_address, he_mram_boot),
+        ]
+        flash_addresses = list(flash_address or [])
+
+        for node_name, binary, address, mram_boot in cpu_args:
+            if binary is None:
+                continue
+
+            if node_name == local_node_name:
+                logger.info("Ignoring %s argument; local build overwrites this CPU",
+                            node_name)
+                continue
+
+            if mram_boot:
+                address = cls._cpu_flash_address(node_name, address, flash_addresses)
+            elif address is None and flash_addresses:
+                flash_addresses.pop(0)
+
+            cls._apply_cpu_arg_image(logger, json_data, node_name, binary,
+                                     address, fls_size, mram_ranges,
+                                     mram_boot)
+
+        if not cls._apply_local_build_image(logger, json_data, local_node_name,
+                                            fls_addr, fls_size):
+            return
 
         try:
             with open(cfg_op_path, 'w', encoding="utf-8") as file:
                 json.dump(json_data, file, indent=4)
         except OSError as err:
             logger.error("Can't open file to write %s: %s", cfg_op_path, err)
+
+    @staticmethod
+    def _cpu_node_name(build_core):
+        if build_core == "a32":
+            return "A32_APP"
+        if build_core == "hp":
+            return "HP_APP"
+        return "HE_APP"
+
+    @classmethod
+    def _cpu_flash_address(cls, node_name, address, flash_addresses):
+        if address is not None:
+            return address
+
+        if flash_addresses:
+            return flash_addresses.pop(0)
+
+        return cls.default_flash_addresses[node_name]
+
+    @classmethod
+    def _binary_size(cls, node_name, binary):
+        try:
+            return os.path.getsize(binary)
+        except OSError as err:
+            raise FileNotFoundError(f'{node_name} binary not found: {binary}') from err
+
+    @classmethod
+    def _mram_limit(cls, fls_size):
+        if fls_size is None:
+            return None
+        return cls.mram_base_addr + (fls_size * 1024)
+
+    @classmethod
+    def _validate_mram_boundary(cls, node_name, start, end, fls_size):
+        if start < cls.mram_base_addr:
+            raise ValueError(f'Unsupported address base 0x{start:x} to write')
+
+        mram_limit = cls._mram_limit(fls_size)
+        if mram_limit is not None and end > mram_limit:
+            raise ValueError(
+                f'{node_name} binary range 0x{start:x}-0x{end:x} '
+                f'exceeds MRAM limit 0x{mram_limit:x}')
+
+    @staticmethod
+    def _validate_mram_overlap(node_name, start, end, mram_ranges):
+        for other_node, other_start, other_end in mram_ranges:
+            if start < other_end and other_start < end:
+                raise ValueError(
+                    f'{node_name} binary range 0x{start:x}-0x{end:x} '
+                    f'overlaps {other_node} range 0x{other_start:x}-0x{other_end:x}')
+
+    @classmethod
+    def _add_mram_range(cls, node_name, start, end, fls_size, mram_ranges):
+        cls._validate_mram_boundary(node_name, start, end, fls_size)
+        cls._validate_mram_overlap(node_name, start, end, mram_ranges)
+        mram_ranges.append((node_name, start, end))
+
+    @classmethod
+    def _apply_cpu_arg_image(cls, logger, json_data, node_name, binary, address,
+                             fls_size, mram_ranges, mram_boot=True):
+        bin_size = cls._binary_size(node_name, binary)
+
+        if node_name not in json_data:
+            raise KeyError(f'{node_name} node missing in JSON template')
+
+        if mram_boot:
+            cls._add_mram_range(node_name, address, address + bin_size, fls_size,
+                                mram_ranges)
+
+        image_dir = os.path.join(cls.exe_dir, 'build/images')
+        shutil.copy(binary, image_dir)
+
+        cpu_node = json_data[node_name]
+        cpu_node["binary"] = os.path.basename(binary)
+        if not mram_boot:
+            logger.info("Updated %s binary %s with existing load configuration",
+                        node_name, cpu_node["binary"])
+            return
+
+        cpu_node.pop('loadAddress', None)
+        cpu_node["mramAddress"] = hex(address)
+        cpu_node["flags"] = ["boot"]
+        logger.info("Updated %s binary %s at %s size %d bytes",
+                    node_name, cpu_node["binary"], cpu_node["mramAddress"],
+                    bin_size)
+
+    @classmethod
+    def _apply_local_build_image(cls, logger, json_data, node_name, fls_addr,
+                                 fls_size):
+        cpu_node = json_data[node_name]
+
+        # update binary name
+        cpu_node["binary"] = "zephyr.bin"
+
+        # verify flash address
+        if fls_addr == 0 :
+            itcm_addr = cls.get_itcm_address(logger)
+            if itcm_addr == 0:
+                logger.error("err addr 0x%x", itcm_addr)
+                return False
+            logger.info("itcm global address 0x%x", itcm_addr)
+            cpu_node["loadAddress"] = hex(itcm_addr)
+            cpu_node["flags"] = ["load", "boot"]
+            return True
+
+        mram_limit = cls._mram_limit(fls_size)
+        if fls_addr >= cls.mram_base_addr and (
+                mram_limit is None or fls_addr <= mram_limit):
+            cpu_node.pop('loadAddress', None)
+            cpu_node['mramAddress'] = hex(fls_addr)
+            cpu_node['flags'] = ["boot"]
+            return True
+
+        raise NotImplementedError(f'Unsupported address base 0x{fls_addr:x} to write')
 
     @staticmethod
     def _get_jlink_defaults():
