@@ -27,9 +27,9 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         "HP_APP": int('0x80200000', 0),
         "HE_APP": int('0x80000000', 0),
     }
-
+    bl32_addr_def = int('0x80002000', 0)
     cfg_ip_file = '/build/config/app-cpu-stubs.json'
-    cfg_op_file = '/build/config/tmp-cpu-stubs.json'
+    cfg_op_file = '/build/config/west-gen-flash-conf.json'
     glbl_cfg_file = '/utils/global-cfg.db'
     isp_cfg_file = '/isp_config_data.cfg'
 
@@ -59,6 +59,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                  he_bin=None,
                  he_flash_address=None,
                  he_mram_boot=None,
+                 bl32_bin=None,
+                 bl32_flash_address=None,
                  flash_address=None):
 
         super().__init__(cfg)
@@ -101,6 +103,10 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         self.he_bin = os.path.abspath(he_bin) if he_bin else None
         self.he_flash_address = he_flash_address
         self.he_mram_boot = False if he_mram_boot is None else bool(he_mram_boot)
+        self.bl32_bin = os.path.abspath(bl32_bin) if bl32_bin else None
+        self.bl32_flash_address = (bl32_flash_address
+                                   if bl32_flash_address is not None
+                                   else self.bl32_addr_def)
         self.flash_address = flash_address or []
 
     @classmethod
@@ -164,6 +170,11 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         parser.add_argument('--he-mram-boot', '-he-mram-boot',
                             default=0, type=int, choices=(0, 1),
                             help='set to 1 to boot --he-bin from MRAM')
+        parser.add_argument('--bl32-bin', help='BL32 bootloader binary, required for A32 builds')
+        parser.add_argument('--bl32-flash-address', type=lambda x: int(x, 0),
+                            default=cls.bl32_addr_def,
+                            help='MRAM address for BL32 bootloader in A32 builds; '
+                                 'used with --bl32-bin, default is 0x80002000')
         parser.add_argument('--flash-address', action='append', type=lambda x: int(x, 0),
                             help='MRAM address for supplied CPU binaries in A32, HP, HE order')
 
@@ -200,6 +211,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
             he_bin=getattr(args, "he_bin", None),
             he_flash_address=getattr(args, "he_flash_address", None),
             he_mram_boot=getattr(args, "he_mram_boot", None),
+            bl32_bin=getattr(args, "bl32_bin", None),
+            bl32_flash_address=getattr(args, "bl32_flash_address", None),
             flash_address=getattr(args, "flash_address", None),
         )
 
@@ -211,6 +224,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
 
             if binary is None and address is not None:
                 raise ValueError(f"--{cpu}-flash-address requires --{cpu}-bin")
+
+        # --bl32-flash-address has a default and is used only with --bl32-bin.
 
     def flash(self, **kwargs):
         """Flash the binary using Alif SE tools."""
@@ -253,6 +268,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                               self.hp_mram_boot,
                               self.he_bin, self.he_flash_address,
                               self.he_mram_boot,
+                              self.bl32_bin,
+                              self.bl32_flash_address,
                               self.flash_address,
                               self.cfg.build_dir)
 
@@ -469,6 +486,8 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                      hp_mram_boot=False,
                      he_bin=None, he_flash_address=None,
                      he_mram_boot=False,
+                     bl32_bin=None,
+                     bl32_flash_address=bl32_addr_def,
                      flash_address=None,
                      build_dir=None):
         """Prepare JSON for ToC generation."""
@@ -523,11 +542,61 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                                             fls_addr, fls_size, build_dir):
             return
 
+        if build_core == "a32" or a32_bin is not None:
+            cls._validate_a32_bootload_args(bl32_bin, bl32_flash_address)
+            cls._apply_a32_bootload_node(json_data, bl32_bin,
+                                         bl32_flash_address, fls_size,
+                                         mram_ranges)
+
         try:
             with open(cfg_op_path, 'w', encoding="utf-8") as file:
                 json.dump(json_data, file, indent=4)
         except OSError as err:
             logger.error("Can't open file to write %s: %s", cfg_op_path, err)
+
+    @classmethod
+    def _validate_a32_bootload_args(cls, bl32_bin, bl32_flash_address):
+        if bl32_bin is None:
+            raise ValueError("A32 image requires --bl32-bin")
+
+    @classmethod
+    def _apply_a32_bootload_node(cls, json_data, bl32_bin=None,
+                                 bl32_flash_address=None, fls_size=None,
+                                 mram_ranges=None):
+        binary = os.path.basename(bl32_bin)
+        address = bl32_flash_address
+
+        bin_size = cls._binary_size("BOOTLOAD", bl32_bin)
+        cls._add_mram_range("BOOTLOAD", address, address + bin_size,
+                            fls_size, mram_ranges or [])
+        image_dir = os.path.join(cls.exe_dir, 'build/images')
+        shutil.copy(bl32_bin, image_dir)
+
+        bootload_node = {
+            "binary": binary,
+            "version": "0.4.3",
+            "mramAddress": hex(address),
+            "signed": True,
+            "cpu_id": "A32_0",
+            "flags": ["boot"],
+        }
+
+        if "BOOTLOAD" in json_data:
+            json_data["BOOTLOAD"] = bootload_node
+            return
+
+        if "A32_APP" not in json_data:
+            json_data["BOOTLOAD"] = bootload_node
+            return
+
+        ordered_data = {}
+        for key, value in json_data.items():
+            if key == "A32_APP":
+                ordered_data["BOOTLOAD"] = bootload_node
+            ordered_data[key] = value
+
+        json_data.clear()
+        json_data.update(ordered_data)
 
     @staticmethod
     def _cpu_node_name(build_core):
@@ -603,13 +672,19 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
         cpu_node = json_data[node_name]
         cpu_node["binary"] = os.path.basename(binary)
         if not mram_boot:
+            if node_name == "A32_APP":
+                cpu_node.pop('flags', None)
+                cpu_node.pop('loadAddress', None)
             logger.info("Updated %s binary %s with existing load configuration",
                         node_name, cpu_node["binary"])
             return
 
         cpu_node.pop('loadAddress', None)
         cpu_node["mramAddress"] = hex(address)
-        cpu_node["flags"] = ["boot"]
+        if node_name == "A32_APP":
+            cpu_node.pop('flags', None)
+        else:
+            cpu_node["flags"] = ["boot"]
         logger.info("Updated %s binary %s at %s size %d bytes",
                     node_name, cpu_node["binary"], cpu_node["mramAddress"],
                     bin_size)
@@ -630,7 +705,10 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                 return False
             logger.info("%s load address 0x%x", node_name, load_addr)
             cpu_node["loadAddress"] = hex(load_addr)
-            cpu_node["flags"] = ["load", "boot"]
+            if node_name == "A32_APP":
+                cpu_node.pop('flags', None)
+            else:
+                cpu_node["flags"] = ["load", "boot"]
             return True
 
         mram_limit = cls._mram_limit(fls_size)
@@ -638,7 +716,10 @@ class AlifImageBinaryRunner(ZephyrBinaryRunner):
                 mram_limit is None or fls_addr <= mram_limit):
             cpu_node.pop('loadAddress', None)
             cpu_node['mramAddress'] = hex(fls_addr)
-            cpu_node['flags'] = ["boot"]
+            if node_name == "A32_APP":
+                cpu_node.pop('flags', None)
+            else:
+                cpu_node['flags'] = ["boot"]
             return True
 
         raise NotImplementedError(f'Unsupported address base 0x{fls_addr:x} to write')
