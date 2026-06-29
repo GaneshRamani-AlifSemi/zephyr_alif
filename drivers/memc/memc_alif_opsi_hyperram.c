@@ -92,7 +92,9 @@ static int memc_alif_ospi_hyperram_init(const struct device *dev)
 	pinctrl_apply_state(config->pcfg, PINCTRL_STATE_DEFAULT);
 
 	/* IRQ init */
-	config->irq_config(dev);
+	if (config->irq_config != NULL) {
+		config->irq_config(dev);
+	}
 
 	memset(&init_config, 0, sizeof(init_config));
 	memset(&data->trans_conf, 0, sizeof(data->trans_conf));
@@ -177,12 +179,12 @@ static void OSPI_IRQHandler(const struct device *dev)
 /* PINCTRL Definition Macro for Node */
 PINCTRL_DT_DEFINE(CONTROLLER_NODE);
 
-static void ospi_irq_config_func(const struct device *dev)
-{
-	IRQ_CONNECT(DT_IRQN(CONTROLLER_NODE), DT_IRQ(CONTROLLER_NODE, priority),
-		    OSPI_IRQHandler, DEVICE_DT_GET(DEVICE_NODE), 0);
-	irq_enable(DT_IRQN(CONTROLLER_NODE));
-}
+// static void ospi_irq_config_func(const struct device *dev)
+// {
+// 	IRQ_CONNECT(DT_IRQN(CONTROLLER_NODE), DT_IRQ(CONTROLLER_NODE, priority),
+// 		    OSPI_IRQHandler, DEVICE_DT_GET(DEVICE_NODE), 0);
+// 	irq_enable(DT_IRQN(CONTROLLER_NODE));
+// }
 
 static const struct alif_ospi_hyperram_config hyperram_config = {
 	.pcfg = PINCTRL_DT_DEV_CONFIG_GET(CONTROLLER_NODE),
@@ -192,7 +194,7 @@ static const struct alif_ospi_hyperram_config hyperram_config = {
 	.rx_fifo_threshold = 0,
 	.rx_sample_delay = 0,
 	.rxds_delay = DT_PROP(CONTROLLER_NODE, rx_ds_delay),
-	.irq_config = ospi_irq_config_func,
+	.irq_config = NULL, //ospi_irq_config_func,
 	.clk_dev = DEVICE_DT_GET(DT_CLOCKS_CTLR(CONTROLLER_NODE)),
 	.clkid = (clock_control_subsys_t)DT_CLOCKS_CELL(CONTROLLER_NODE, clkid)
 };
