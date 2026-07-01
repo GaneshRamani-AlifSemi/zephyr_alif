@@ -13,7 +13,7 @@ config MRAM_FLASH_ALIF
 
 menuconfig OSPI_FLASH
 	bool "OSPI Flash support for Alif SoCs"
-	depends on (DT_HAS_MXICY_MX66UW_FLASH_ENABLED || DT_HAS_ISSI_XSPI_FLASH_CONTROLLER_ENABLED)
+	depends on (DT_HAS_MXICY_MX66UW_FLASH_ENABLED || DT_HAS_MSPI_IS25XX0XX_ENABLED)
 	default y
 	select FLASH_HAS_DRIVER_ENABLED
 	select FLASH_HAS_PAGE_LAYOUT
@@ -30,16 +30,6 @@ config OSPI_FLASH_MX66UW
 	select USE_ALIF_HAL_OSPI
 	help
 	  Enables Macronix MX66UW flash driver.
-
-config OSPI_FLASH_IS25WX
-	bool "ISSI IS25WX (128/256/512)"
-	depends on DT_HAS_ISSI_XSPI_FLASH_CONTROLLER_ENABLED
-	default y
-	select MSPI
-	select FLASH_JESD216
-	select FLASH_JESD216_API
-	help
-	  Enables ISSI IS25WX flash driver using the MSPI controller path.
 
 if OSPI_FLASH
 

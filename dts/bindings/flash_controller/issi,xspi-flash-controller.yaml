@@ -5,6 +5,8 @@ description: ISSI xSPI Flash controller
 
 compatible: "issi,xspi-flash-controller"
 
+deprecated: true
+
 include: flash-controller.yaml
 
 #on-bus: ospi

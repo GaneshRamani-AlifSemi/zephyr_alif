@@ -978,6 +978,8 @@ static int _api_dev_config(const struct device *dev,
 	}
 
 	if (param_mask & MSPI_DEVICE_CONFIG_FREQUENCY) {
+		uint32_t baudr;
+
 		if (cfg->freq > dev_config->clock_frequency / 2 ||
 		    cfg->freq < dev_config->clock_frequency / 65534) {
 			LOG_ERR("Invalid frequency: %u, MIN: %u, MAX: %u",
@@ -998,7 +1000,12 @@ static int _api_dev_config(const struct device *dev,
 		}
 #endif
 
-		dev_data->baudr = dev_config->clock_frequency / cfg->freq;
+		baudr = DIV_ROUND_UP(dev_config->clock_frequency, cfg->freq);
+		if (baudr & BIT(0)) {
+			baudr++;
+		}
+
+		dev_data->baudr = baudr;
 	}
 
 	if (param_mask & MSPI_DEVICE_CONFIG_DATA_RATE) {
@@ -1355,6 +1362,11 @@ static int start_next_packet(const struct device *dev)
 	}
 #endif
 
+	/* Alif OSPI does not allow SER to be programmed while the controller
+	 * is enabled or busy. Select the target before OSPI_EN is asserted.
+	 */
+	write_ser(dev, BIT(dev_data->dev_id->dev_idx));
+
 	if (xip_enabled) {
 		write_ssienr(dev, SSIENR_SSIC_EN_BIT);
 		irq_unlock(key);
@@ -1491,9 +1503,6 @@ static int start_next_packet(const struct device *dev)
 	}
 #endif
 
-	/* Write SER to start transfer */
-	write_ser(dev, BIT(dev_data->dev_id->dev_idx));
-
 #if defined(CONFIG_MULTITHREADING)
 	k_timeout_t timeout = K_MSEC(dev_data->xfer.timeout);
 
@@ -1548,16 +1557,15 @@ static int finalize_packet(const struct device *dev, int rc)
 			unsigned int key = irq_lock();
 
 			write_ssienr(dev, 0);
+			write_ser(dev, 0);
 			write_ssienr(dev, SSIENR_SSIC_EN_BIT);
 
 			irq_unlock(key);
 		}
 	} else {
 		write_ssienr(dev, 0);
+		write_ser(dev, 0);
 	}
-
-	/* Clear SER */
-	write_ser(dev, 0);
 
 	if (dev_data->dev_id->ce.port) {
 		int rc2;
