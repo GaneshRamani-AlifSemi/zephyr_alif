@@ -199,7 +199,7 @@
 	};
 
 	ospi1: ospi1@83002000 {
-		compatible = "snps,designware-ssi", "snps,designware-ospi";
+		compatible = "snps,designware-ssi";
 		#address-cells = <1>;
 		#size-cells = <0>;
 		reg = <0x83002000 0x1000>;

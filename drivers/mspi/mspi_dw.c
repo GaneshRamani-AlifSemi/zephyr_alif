@@ -1735,6 +1735,11 @@ static int api_timing_config(const struct device *dev,
 	struct mspi_dw_data *dev_data = dev->data;
 	struct mspi_dw_timing_cfg *config = cfg;
 
+	//TODO Alif ?
+	dev_data->rx_sample_dly = 11;
+
+	return 0;
+
 	if (param_mask & MSPI_DW_RX_TIMING_CFG) {
 		dev_data->rx_sample_dly = config->rx_sample_dly;
 		return 0;
