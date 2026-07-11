@@ -1201,7 +1201,7 @@ static int start_next_packet(const struct device *dev)
 			 * controller-visible packet semantics used by the legacy HAL
 			 * path.
 			 */
-			LOG_INF("Opcode TX cmd=0x%02x using 8-bit frame", packet->cmd);
+			//LOG_INF("Opcode TX cmd=0x%02x using 8-bit frame", packet->cmd);
 			dev_data->bytes_per_frame_exp = 0;
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS_MASK, 7);
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS32_MASK, 7);
@@ -1209,7 +1209,7 @@ static int start_next_packet(const struct device *dev)
 			dev_data->bytes_per_frame_exp = 2;
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS_MASK, 31);
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS32_MASK, 31);
-		} else if ((packet->num_bytes % 2) == 0) {
+			} else if ((packet->num_bytes % 2) == 0) {
 			dev_data->bytes_per_frame_exp = 1;
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS_MASK, 15);
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS32_MASK, 15);
@@ -1341,12 +1341,12 @@ static int start_next_packet(const struct device *dev)
 		: 0);
 	write_spi_ctrlr0(dev, dev_data->spi_ctrlr0);
 	write_baudr(dev, dev_data->baudr);
-	write_rx_sample_dly(dev, dev_data->rx_sample_dly);
+	write_rx_sample_dly(dev, 0);//dev_data->rx_sample_dly);
 	if (dev_config->aes_regs != NULL) {
 		volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
 
 		alif_aes_set_rxds_delay(aes, dev_config->rx_ds_delay);
-		alif_aes_set_baud2_delay(aes, dev_config->baud2_delay, dev_data->baudr);
+		//alif_aes_set_baud2_delay(aes, dev_config->baud2_delay, dev_data->baudr);
 	}
 #if defined(CONFIG_MSPI_DW_DDR)
 	if (dev_config->ddr_drive_edge != 0U) {

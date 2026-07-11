@@ -1109,7 +1109,7 @@ static DEVICE_API(flash, flash_mspi_is25xX0xx_api) = {
 #define MSPI_DEVICE_CONFIG_SERIAL(n)                                                              \
 	{                                                                                         \
 		.ce_num             = DT_INST_PROP(n, mspi_hardware_ce_num),                      \
-		.freq               = 1000000,                                                   \
+		.freq               = MHZ(1),                                                    \
 		.io_mode            = MSPI_IO_MODE_SINGLE,                                        \
 		.data_rate          = MSPI_DATA_RATE_SINGLE,                                      \
 		.cpp                = MSPI_CPP_MODE_0,                                            \
