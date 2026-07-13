@@ -171,6 +171,42 @@ DEFINE_MM_REG_WR(xip_write_ctrl,	0x148)
 #include "mspi_dw_alif.h"
 #include "mspi_dw_vendor_specific.h"
 
+static uint32_t active_rx_sample_dly(const struct mspi_dw_data *dev_data)
+{
+	return (dev_data->spi_ctrlr0 & SPI_CTRLR0_SPI_RXDS_EN_BIT) ? 0U :
+								     dev_data->rx_sample_dly;
+}
+
+static void apply_timing_config(const struct device *dev)
+{
+	const struct mspi_dw_config *dev_config = dev->config;
+	const struct mspi_dw_data *dev_data = dev->data;
+
+	write_rx_sample_dly(dev, active_rx_sample_dly(dev_data));
+
+	if (dev_config->aes_regs != NULL) {
+		volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
+
+		alif_aes_set_rxds_delay(aes, dev_config->rx_ds_delay);
+		alif_aes_set_baud2_delay(aes, dev_config->baud2_delay,
+					 dev_data->baudr);
+	}
+
+#if defined(CONFIG_MSPI_DW_DDR)
+	if (dev_config->ddr_drive_edge != 0U) {
+		write_txd_drive_edge(dev, dev_config->ddr_drive_edge);
+	} else if (dev_data->spi_ctrlr0 & (SPI_CTRLR0_SPI_DDR_EN_BIT |
+					   SPI_CTRLR0_INST_DDR_EN_BIT)) {
+		uint32_t txd = (CONFIG_MSPI_DW_TXD_MUL * dev_data->baudr) /
+			       CONFIG_MSPI_DW_TXD_DIV;
+
+		write_txd_drive_edge(dev, txd);
+	} else {
+		write_txd_drive_edge(dev, 0);
+	}
+#endif
+}
+
 static int start_next_packet(const struct device *dev);
 static int finalize_packet(const struct device *dev, int rc);
 static int finalize_transceive(const struct device *dev, int rc);
@@ -1142,7 +1178,6 @@ static int start_next_packet(const struct device *dev)
 			 * controller-visible packet semantics used by the legacy HAL
 			 * path.
 			 */
-			//LOG_INF("Opcode TX cmd=0x%02x using 8-bit frame", packet->cmd);
 			dev_data->bytes_per_frame_exp = 0;
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS_MASK, 7);
 			dev_data->ctrlr0 |= FIELD_PREP(CTRLR0_DFS32_MASK, 7);
@@ -1282,26 +1317,7 @@ static int start_next_packet(const struct device *dev)
 		: 0);
 	write_spi_ctrlr0(dev, dev_data->spi_ctrlr0);
 	write_baudr(dev, dev_data->baudr);
-	write_rx_sample_dly(dev, 0);//dev_data->rx_sample_dly);
-	if (dev_config->aes_regs != NULL) {
-		volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
-
-		alif_aes_set_rxds_delay(aes, dev_config->rx_ds_delay);
-		//alif_aes_set_baud2_delay(aes, dev_config->baud2_delay, dev_data->baudr);
-	}
-#if defined(CONFIG_MSPI_DW_DDR)
-	if (dev_config->ddr_drive_edge != 0U) {
-		write_txd_drive_edge(dev, dev_config->ddr_drive_edge);
-	} else if (dev_data->spi_ctrlr0 & (SPI_CTRLR0_SPI_DDR_EN_BIT |
-					   SPI_CTRLR0_INST_DDR_EN_BIT)) {
-		int txd = (CONFIG_MSPI_DW_TXD_MUL * dev_data->baudr) /
-			CONFIG_MSPI_DW_TXD_DIV;
-
-		write_txd_drive_edge(dev, txd);
-	} else {
-		write_txd_drive_edge(dev, 0);
-	}
-#endif
+	apply_timing_config(dev);
 
 	/* Alif OSPI does not allow SER to be programmed while the controller
 	 * is enabled or busy. Select the target before OSPI_EN is asserted.
@@ -1674,14 +1690,16 @@ static int api_timing_config(const struct device *dev,
 			     const uint32_t param_mask, void *cfg)
 {
 	struct mspi_dw_data *dev_data = dev->data;
-	struct mspi_dw_timing_cfg *config = cfg;
 
-	//TODO Alif ?
-	dev_data->rx_sample_dly = 11;
+	ARG_UNUSED(dev_id);
 
-	return 0;
+	if (param_mask == MSPI_TIMING_PARAM_DUMMY) {
+		return 0;
+	}
 
 	if (param_mask & MSPI_DW_RX_TIMING_CFG) {
+		struct mspi_dw_timing_cfg *config = cfg;
+
 		dev_data->rx_sample_dly = config->rx_sample_dly;
 		return 0;
 	}

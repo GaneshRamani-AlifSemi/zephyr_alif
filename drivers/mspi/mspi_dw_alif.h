@@ -130,7 +130,17 @@ static inline void alif_xip_prepare_registers(const struct device *dev)
 	}
 
 #if defined(CONFIG_MSPI_DW_DDR)
-	write_txd_drive_edge(dev, dev_config->ddr_drive_edge);
+	if (dev_config->ddr_drive_edge != 0U) {
+		write_txd_drive_edge(dev, dev_config->ddr_drive_edge);
+	} else if (dev_data->spi_ctrlr0 & (SPI_CTRLR0_SPI_DDR_EN_BIT |
+					   SPI_CTRLR0_INST_DDR_EN_BIT)) {
+		uint32_t txd = (CONFIG_MSPI_DW_TXD_MUL * dev_data->baudr) /
+			       CONFIG_MSPI_DW_TXD_DIV;
+
+		write_txd_drive_edge(dev, txd);
+	} else {
+		write_txd_drive_edge(dev, 0);
+	}
 #endif
 
 	write_xip_mode_bits(dev, 0);
