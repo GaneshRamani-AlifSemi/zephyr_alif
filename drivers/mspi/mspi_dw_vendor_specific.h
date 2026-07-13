@@ -335,10 +335,16 @@ static inline void vendor_specific_irq_clear(const struct device *dev)
 {
 	ARG_UNUSED(dev);
 }
+
 static inline int vendor_specific_xip_enable(const struct device *dev,
 					     const struct mspi_dev_id *dev_id,
 					     const struct mspi_xip_cfg *cfg)
 {
+#if defined(CONFIG_MSPI_XIP) && \
+	(defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO))
+
+	return alif_xip_enable(dev, dev_id, cfg);
+#endif
 	ARG_UNUSED(dev);
 	ARG_UNUSED(dev_id);
 	ARG_UNUSED(cfg);
@@ -349,12 +355,20 @@ static inline int vendor_specific_xip_disable(const struct device *dev,
 					      const struct mspi_dev_id *dev_id,
 					      const struct mspi_xip_cfg *cfg)
 {
+#if defined(CONFIG_MSPI_XIP) && \
+	(defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO))
+
+	return alif_xip_disable(dev, dev_id, cfg);
+#endif
+
 	ARG_UNUSED(dev);
 	ARG_UNUSED(dev_id);
 	ARG_UNUSED(cfg);
 
 	return 0;
 }
+#endif /* Empty vendor specific macros */
+
 #if defined(CONFIG_MSPI_DMA)
 static inline void vendor_specific_start_dma_xfer(const struct device *dev)
 {
@@ -375,7 +389,6 @@ static inline bool vendor_specific_read_dma_irq(const struct device *dev)
 	return true;
 }
 #endif /* defined(CONFIG_MSPI_DMA) */
-#endif /* Empty vendor specific macros */
 
 /* Empty macros for generic case - no vendor-specific data */
 #ifndef VENDOR_SPECIFIC_DATA_DEFINE

@@ -154,9 +154,12 @@ DEFINE_MM_REG_WR(dmardlr,	0x54)
 #endif
 
 #if defined(CONFIG_MSPI_XIP)
+DEFINE_MM_REG_WR(xip_mode_bits,		0xfc)
 DEFINE_MM_REG_WR(xip_incr_inst,		0x100)
 DEFINE_MM_REG_WR(xip_wrap_inst,		0x104)
 DEFINE_MM_REG_WR(xip_ctrl,		0x108)
+DEFINE_MM_REG_RD_WR(xip_ser,		0x10c)
+DEFINE_MM_REG_WR(xip_cnt_time_out,	0x114)
 DEFINE_MM_REG_WR(xip_write_incr_inst,	0x140)
 DEFINE_MM_REG_WR(xip_write_wrap_inst,	0x144)
 DEFINE_MM_REG_WR(xip_write_ctrl,	0x148)
@@ -165,70 +168,7 @@ DEFINE_MM_REG_WR(xip_write_ctrl,	0x148)
 /* Ceiling division by 32 */
 #define CEIL_DIV_32(x) (((x) + 31U) >> 5)
 
-struct alif_ospi_aes_regs {
-	uint32_t AES_CTRL;
-	uint32_t AES_INTR;
-	uint32_t AES_INTR_MASK;
-	uint32_t AES_CLK_DIS;
-	uint32_t AES_ADDR_CONTROL;
-	uint32_t AES_RES_0;
-	uint32_t AES_RES_1;
-	uint32_t AES_RES_2;
-	uint32_t AES_RXDS_DLY;
-};
-
-#define ALIF_AUX_BAUD2_DELAY_MASK BIT(30U)
-
-#if defined(CONFIG_ENSEMBLE_GEN2)
-#define ALIF_AUX_SIGNAL_0_DELAY_POS 0U
-#define ALIF_AUX_SIGNAL_1_DELAY_POS 8U
-static inline void alif_aes_set_rxds_delay(volatile struct alif_ospi_aes_regs *aes,
-					   uint8_t delay)
-{
-	aes->AES_RXDS_DLY = ((uint32_t)delay << ALIF_AUX_SIGNAL_0_DELAY_POS) |
-			    ((uint32_t)delay << ALIF_AUX_SIGNAL_1_DELAY_POS);
-}
-#else
-static inline void alif_aes_set_rxds_delay(volatile struct alif_ospi_aes_regs *aes,
-					   uint8_t delay)
-{
-	aes->AES_RXDS_DLY = delay;
-}
-#endif
-
-static inline void alif_aes_set_baud2_delay(volatile struct alif_ospi_aes_regs *aes,
-					    uint8_t baud2_delay, uint32_t baudr)
-{
-#if defined(CONFIG_SOC_SERIES_E1C) || defined(CONFIG_SOC_SERIES_B1)
-	bool enable = false;
-
-	switch (baud2_delay) {
-	case 0U:
-		enable = false;
-		break;
-	case 1U:
-		enable = true;
-		break;
-	case 2U:
-		enable = (baudr == 2U);
-		break;
-	default:
-		enable = false;
-		break;
-	}
-
-	if (enable) {
-		aes->AES_INTR_MASK |= ALIF_AUX_BAUD2_DELAY_MASK;
-	} else {
-		aes->AES_INTR_MASK &= ~ALIF_AUX_BAUD2_DELAY_MASK;
-	}
-#else
-	ARG_UNUSED(aes);
-	ARG_UNUSED(baud2_delay);
-	ARG_UNUSED(baudr);
-#endif
-}
-
+#include "mspi_dw_alif.h"
 #include "mspi_dw_vendor_specific.h"
 
 static int start_next_packet(const struct device *dev);
@@ -894,6 +834,7 @@ static bool apply_xip_addr_length(const struct mspi_dw_data *dev_data,
 
 	return true;
 }
+
 #endif /* defined(CONFIG_MSPI_XIP) */
 
 static int _api_dev_config(const struct device *dev,
@@ -1791,6 +1732,7 @@ static int _api_xip_config(const struct device *dev,
 		    !apply_xip_addr_length(dev_data, &ctrl)) {
 			return -EINVAL;
 		}
+		alif_xip_update_ctrl(dev_data, &ctrl);
 
 		if (params->rx_dummy > XIP_CTRL_WAIT_CYCLES_MAX ||
 		    params->tx_dummy > XIP_WRITE_CTRL_WAIT_CYCLES_MAX) {
@@ -1819,6 +1761,7 @@ static int _api_xip_config(const struct device *dev,
 		 */
 		write_ctrlr0(dev, dev_data->ctrlr0);
 		write_baudr(dev, dev_data->baudr);
+		alif_xip_prepare_registers(dev);
 
 		write_xip_incr_inst(dev, params->read_cmd);
 		write_xip_wrap_inst(dev, params->read_cmd);
