@@ -45,12 +45,10 @@ LOG_MODULE_REGISTER(flash_mspi_is25xX0xx, CONFIG_FLASH_LOG_LEVEL);
 #define IS25XX0XX_BLOCK_SIZE                0x20000
 
 #define IS25XX0XX_WRITE_VOL_REG_CMD         0x81
-#define IS25XX0XX_READ_VOL_REG_CMD          0x85
 #define IS25XX0XX_IO_MODE_ADDRESS           0x000000
 #define IS25XX0XX_WAIT_CYCLE_ADDRESS        0x000001
 #define IS25XX0XX_DEFAULT_WAIT_CYCLES       0x10
 #define IS25XX0XX_STATUS_DDR_DUMMY          8
-#define IS25XX0XX_OCTAL_DDR_WRITE_ALIGN     2
 
 #ifndef MSPI_XFER_PRIORITY_MEDIUM
 #define MSPI_XFER_PRIORITY_MEDIUM           0
@@ -73,10 +71,10 @@ static bool buf_in_nocache(uintptr_t buf, size_t len)
 #endif
 
 enum is25xX0xx_io_mode {
-	IS25XX0XX_IO_MODE_EXTENDED_SPI        	= 0xFF,
-	IS25XX0XX_IO_MODE_EXTENDED_SPI_NONDQS 	= 0xDF,
-	IS25XX0XX_IO_MODE_OCTAL_DDR	  	= 0xE7,
-	IS25XX0XX_IO_MODE_OCTAL_DDR_NONDQS 	= 0xC7
+	IS25XX0XX_IO_MODE_EXTENDED_SPI        = 0xFF,
+	IS25XX0XX_IO_MODE_EXTENDED_SPI_NONDQS = 0xDF,
+	IS25XX0XX_IO_MODE_OCTAL_DDR           = 0xE7,
+	IS25XX0XX_IO_MODE_OCTAL_DDR_NONDQS    = 0xC7
 };
 
 static bool is25xX0xx_is_octal_ddr_cfg(const struct mspi_dev_cfg *dev_cfg)
@@ -86,27 +84,6 @@ static bool is25xX0xx_is_octal_ddr_cfg(const struct mspi_dev_cfg *dev_cfg)
 		dev_cfg->io_mode == MSPI_IO_MODE_OCTAL_1_8_8) &&
 	       (dev_cfg->data_rate == MSPI_DATA_RATE_DUAL ||
 		dev_cfg->data_rate == MSPI_DATA_RATE_S_D_D);
-}
-
-static size_t is25xX0xx_octal_ddr_program_len(off_t offset, const uint8_t *src,
-					       size_t len, uint8_t *buf)
-{
-	size_t padded_len = len;
-	size_t prefix = 0;
-
-	if (offset & 1) {
-		buf[0] = NOR_ERASE_VALUE;
-		prefix = 1;
-	}
-
-	memcpy(buf + prefix, src, len);
-	padded_len += prefix;
-
-	if (padded_len & 1) {
-		buf[padded_len++] = NOR_ERASE_VALUE;
-	}
-
-	return padded_len;
 }
 
 struct flash_mspi_is25xX0xx_config {
@@ -120,11 +97,11 @@ struct flash_mspi_is25xX0xx_config {
 	struct mspi_dev_cfg                 serial_cfg;
 	struct mspi_dev_cfg                 tar_dev_cfg;
 
-	struct mspi_xip_cfg                 tar_xip_cfg;
-	uint32_t                            xip_base_addr;
-	struct mspi_scramble_cfg            tar_scramble_cfg;
-	mspi_timing_cfg                     tar_timing_cfg;
-	mspi_timing_param                   timing_cfg_mask;
+	MSPI_XIP_CFG_STRUCT_DECLARE(tar_xip_cfg)
+	MSPI_XIP_BASE_ADDR_DECLARE(xip_base_addr)
+	MSPI_SCRAMBLE_CFG_STRUCT_DECLARE(tar_scramble_cfg)
+	MSPI_TIMING_CFG_STRUCT_DECLARE(tar_timing_cfg)
+	MSPI_TIMING_PARAM_DECLARE(timing_cfg_mask)
 
 	bool                                sw_multi_periph;
 
@@ -160,6 +137,9 @@ static int flash_mspi_is25xX0xx_enter_command_mode(const struct device *flash)
 	struct flash_mspi_is25xX0xx_data         *data = flash->data;
 	int                                       ret;
 
+	/* In Octal DDR mode, command/status operations also use the Octal DDR
+	 * command set, so do not switch back to serial mode between operations.
+	 */
 	if (is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg)) {
 		return 0;
 	}
@@ -183,6 +163,9 @@ static int flash_mspi_is25xX0xx_exit_command_mode(const struct device *flash)
 	struct flash_mspi_is25xX0xx_data         *data = flash->data;
 	int                                       ret;
 
+	/* In Octal DDR mode, command/status operations also use the Octal DDR
+	 * command set, so there is no serial command mode to restore from.
+	 */
 	if (is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg)) {
 		return 0;
 	}
@@ -320,12 +303,14 @@ static int flash_mspi_is25xX0xx_write_disable(const struct device *flash)
 
 static int flash_mspi_is25xX0xx_is_ready(const struct device *flash)
 {
-	struct flash_mspi_is25xX0xx_data *data = flash->data;
 	uint32_t flag_stat = 0;
-	uint32_t rx_dummy  = is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg) ?
-			     IS25XX0XX_STATUS_DDR_DUMMY : 0;
+	struct flash_mspi_is25xX0xx_data *data = flash->data;
+	uint32_t rx_dummy  = 0; 
 	uint32_t timeout   = 400; /* max tSSE */
 	int      ret;
+
+	rx_dummy = flash_mspi_is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg) ?
+			     IS25XX0XX_STATUS_DDR_DUMMY : 0;
 
 	do {
 		LOG_DBG("Reading flag status register");
@@ -568,7 +553,14 @@ static int flash_mspi_is25xX0xx_read(const struct device *flash, off_t offset, v
 {
 	const struct flash_mspi_is25xX0xx_config *cfg  = flash->config;
 	struct flash_mspi_is25xX0xx_data         *data = flash->data;
-	int                                       ret;
+	int                                       ret = 0;
+
+	if (!IS_ALIGNED(offset, cfg->flash_param.write_block_size) ||
+	    !IS_ALIGNED(len, cfg->flash_param.write_block_size)) {
+		LOG_ERR("Read offset/length must be aligned to write block size %zu",
+			cfg->flash_param.write_block_size);
+		return -EINVAL;
+	}
 
 	acquire(flash);
 
@@ -614,7 +606,8 @@ static int flash_mspi_is25xX0xx_read(const struct device *flash, off_t offset, v
 				      (const struct mspi_xfer *)&data->trans);
 		if (ret) {
 			LOG_ERR("MSPI read transaction failed with code: %d/%u", ret, __LINE__);
-			return -EIO;
+			ret = -EIO;
+			goto out;
 		}
 
 #if CONFIG_FLASH_MSPI_HANDLE_CACHE
@@ -630,6 +623,7 @@ static int flash_mspi_is25xX0xx_read(const struct device *flash, off_t offset, v
 	}
 #endif /* CONFIG_FLASH_MSPI_XIP_READ */
 
+out:
 	release(flash);
 
 	return ret;
@@ -638,16 +632,21 @@ static int flash_mspi_is25xX0xx_read(const struct device *flash, off_t offset, v
 static int flash_mspi_is25xX0xx_write(const struct device *flash, off_t offset, const void *wdata,
 				      size_t len)
 {
-	struct flash_mspi_is25xX0xx_data *data = flash->data;
-	int      ret;
-	uint8_t *src = (uint8_t *)wdata;
-	int      i;
-	bool     octal_ddr = is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg);
-	uint8_t  padded_buf[SPI_NOR_PAGE_SIZE + IS25XX0XX_OCTAL_DDR_WRITE_ALIGN];
+	const struct flash_mspi_is25xX0xx_config *cfg = flash->config;
+	int                                       ret = 0;
+	uint8_t                                  *src = (uint8_t *)wdata;
+	int                                       i;
 #if CONFIG_FLASH_MSPI_HANDLE_CACHE && CONFIG_FLASH_MSPI_XIP_READ
 	off_t  addr = offset;
 	size_t size = len;
 #endif
+
+	if (!IS_ALIGNED(offset, cfg->flash_param.write_block_size) ||
+	    !IS_ALIGNED(len, cfg->flash_param.write_block_size)) {
+		LOG_ERR("Write offset/length must be aligned to write block size %zu",
+			cfg->flash_param.write_block_size);
+		return -EINVAL;
+	}
 
 	acquire(flash);
 
@@ -667,54 +666,40 @@ static int flash_mspi_is25xX0xx_write(const struct device *flash, off_t offset, 
 		 * be wrapped around within the same page
 		 */
 		i = MIN(SPI_NOR_PAGE_SIZE - (offset % SPI_NOR_PAGE_SIZE), len);
-		if (octal_ddr) {
-			i = MIN(i, IS25XX0XX_OCTAL_DDR_WRITE_ALIGN - (offset & 1));
-		}
-		off_t program_offset = offset;
-		uint8_t *program_src = src;
-		size_t program_len = i;
-
-		if (octal_ddr) {
-			program_offset &= ~(off_t)(IS25XX0XX_OCTAL_DDR_WRITE_ALIGN - 1);
-			program_len = is25xX0xx_octal_ddr_program_len(offset, src, i,
-								      padded_buf);
-			program_src = padded_buf;
-		}
 
 		ret = flash_mspi_is25xX0xx_enter_command_mode(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		ret = flash_mspi_is25xX0xx_write_enable(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		ret = flash_mspi_is25xX0xx_exit_command_mode(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
-		ret = flash_mspi_is25xX0xx_page_program(flash, program_offset, program_src,
-							program_len);
+		ret = flash_mspi_is25xX0xx_page_program(flash, offset, src, i);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		ret = flash_mspi_is25xX0xx_enter_command_mode(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		ret = flash_mspi_is25xX0xx_busy_wait(flash, 3);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		ret = flash_mspi_is25xX0xx_exit_command_mode(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		src    += i;
@@ -724,12 +709,10 @@ static int flash_mspi_is25xX0xx_write(const struct device *flash, off_t offset, 
 
 	ret = flash_mspi_is25xX0xx_write_disable(flash);
 	if (ret) {
-		return ret;
+		goto out;
 	}
 
 #if CONFIG_FLASH_MSPI_HANDLE_CACHE && CONFIG_FLASH_MSPI_XIP_READ
-	const struct flash_mspi_is25xX0xx_config *cfg = flash->config;
-
 	if (cfg->tar_xip_cfg.enable) {
 		uint32_t xip_addr = cfg->xip_base_addr + cfg->tar_xip_cfg.address_offset + addr;
 
@@ -743,6 +726,7 @@ static int flash_mspi_is25xX0xx_write(const struct device *flash, off_t offset, 
 	}
 #endif
 
+out:
 	release(flash);
 
 	return ret;
@@ -761,50 +745,52 @@ static int flash_mspi_is25xX0xx_erase(const struct device *flash, off_t offset, 
 
 	if (offset % SPI_NOR_SECTOR_SIZE) {
 		LOG_ERR("Invalid offset");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	if (size % SPI_NOR_SECTOR_SIZE) {
 		LOG_ERR("Invalid size");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto out;
 	}
 
 	ret = flash_mspi_is25xX0xx_enter_command_mode(flash);
 	if (ret) {
-		return ret;
+		goto out;
 	}
 
 	if ((offset == 0) && (size == cfg->mem_size)) {
 		ret = flash_mspi_is25xX0xx_write_enable(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
 		ret = flash_mspi_is25xX0xx_erase_chip(flash);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 
-		ret = flash_mspi_is25xX0xx_busy_wait(flash, 45000*100);
+		ret = flash_mspi_is25xX0xx_busy_wait(flash, 45000 * 100);
 		if (ret) {
-			return ret;
+			goto out;
 		}
 	} else if ((0 == (offset % IS25XX0XX_BLOCK_SIZE)) &&
 		   (0 == (size % IS25XX0XX_BLOCK_SIZE))) {
 		for (i = 0; i < num_blocks; i++) {
 			ret = flash_mspi_is25xX0xx_write_enable(flash);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			ret = flash_mspi_is25xX0xx_erase_block(flash, offset);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			ret = flash_mspi_is25xX0xx_busy_wait(flash, 1000);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			offset += IS25XX0XX_BLOCK_SIZE;
@@ -814,17 +800,17 @@ static int flash_mspi_is25xX0xx_erase(const struct device *flash, off_t offset, 
 		for (i = 0; i < num_32k_sectors; i++) {
 			ret = flash_mspi_is25xX0xx_write_enable(flash);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			ret = flash_mspi_is25xX0xx_erase_32k_sector(flash, offset);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			ret = flash_mspi_is25xX0xx_busy_wait(flash, 1000);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			offset += IS25XX0XX_32KSECTOR_SIZE;
@@ -833,17 +819,17 @@ static int flash_mspi_is25xX0xx_erase(const struct device *flash, off_t offset, 
 		for (i = 0; i < num_sectors; i++) {
 			ret = flash_mspi_is25xX0xx_write_enable(flash);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			ret = flash_mspi_is25xX0xx_erase_sector(flash, offset);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			ret = flash_mspi_is25xX0xx_busy_wait(flash, 400);
 			if (ret) {
-				return ret;
+				goto out;
 			}
 
 			offset += SPI_NOR_SECTOR_SIZE;
@@ -852,9 +838,10 @@ static int flash_mspi_is25xX0xx_erase(const struct device *flash, off_t offset, 
 
 	ret = flash_mspi_is25xX0xx_exit_command_mode(flash);
 	if (ret) {
-		return ret;
+		goto out;
 	}
 
+out:
 	release(flash);
 
 	return ret;
@@ -866,6 +853,15 @@ flash_mspi_is25xX0xx_get_parameters(const struct device *flash)
 	const struct flash_mspi_is25xX0xx_config *cfg = flash->config;
 
 	return &cfg->flash_param;
+}
+
+static int flash_mspi_is25xX0xx_get_size(const struct device *flash, uint64_t *size)
+{
+	const struct flash_mspi_is25xX0xx_config *cfg = flash->config;
+
+	*size = cfg->mem_size;
+
+	return 0;
 }
 
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
@@ -887,32 +883,32 @@ static int flash_mspi_is25xX0xx_init(const struct device *flash)
 	uint8_t                                   vendor_id;
 	uint8_t                                   reg_dummy;
 	uint8_t                                   reg_io_mode;
-	uint8_t                                   wait_cycles[2];
 	bool                                      octal_ddr;
-	uint8_t                                   nv_val = 0;
-	int                                       ret;
 
 	if (!device_is_ready(cfg->bus)) {
 		LOG_ERR("Controller device is not ready.");
 		return -ENODEV;
 	}
 
-	switch (cfg->tar_dev_cfg.io_mode) {
-	case MSPI_IO_MODE_SINGLE:
-		reg_io_mode = IS25XX0XX_IO_MODE_EXTENDED_SPI;
-		break;
-	case MSPI_IO_MODE_OCTAL:
-	case MSPI_IO_MODE_OCTAL_1_1_8:
-	case MSPI_IO_MODE_OCTAL_1_8_8:
-		reg_io_mode = cfg->tar_dev_cfg.dqs_enable ?
-			      IS25XX0XX_IO_MODE_OCTAL_DDR :
-			      IS25XX0XX_IO_MODE_OCTAL_DDR_NONDQS;
-		break;
-	default:
+	octal_ddr = is25xX0xx_is_octal_ddr_cfg(&cfg->tar_dev_cfg);
+
+	if (cfg->tar_dev_cfg.io_mode != MSPI_IO_MODE_SINGLE &&
+	    cfg->tar_dev_cfg.io_mode != MSPI_IO_MODE_OCTAL &&
+	    cfg->tar_dev_cfg.io_mode != MSPI_IO_MODE_OCTAL_1_1_8 &&
+	    cfg->tar_dev_cfg.io_mode != MSPI_IO_MODE_OCTAL_1_8_8) {
 		LOG_ERR("bus mode %d not supported/%u", cfg->tar_dev_cfg.io_mode, __LINE__);
 		return -EIO;
 	}
-	octal_ddr = is25xX0xx_is_octal_ddr_cfg(&cfg->tar_dev_cfg);
+
+	if (octal_ddr) {
+		reg_io_mode = cfg->tar_dev_cfg.dqs_enable ?
+			      IS25XX0XX_IO_MODE_OCTAL_DDR :
+			      IS25XX0XX_IO_MODE_OCTAL_DDR_NONDQS;
+	} else {
+		reg_io_mode = cfg->tar_dev_cfg.dqs_enable ?
+			      IS25XX0XX_IO_MODE_EXTENDED_SPI :
+			      IS25XX0XX_IO_MODE_EXTENDED_SPI_NONDQS;
+	}
 
 	if (mspi_dev_config(cfg->bus, &cfg->dev_id, MSPI_DEVICE_CONFIG_ALL, &cfg->serial_cfg)) {
 		LOG_ERR("Failed to config mspi controller/%u", __LINE__);
@@ -935,40 +931,44 @@ static int flash_mspi_is25xX0xx_init(const struct device *flash)
 			IS25XX0XX_VENDOR_ID, __LINE__);
 	}
 
-#if 0	
-	/* serial mode */
-	ret = flash_mspi_is25xX0xx_command_read(flash, SPI_NOR_CMD_READ_NON_VOL_REG, 0, cfg->serial_cfg.addr_length, 8,
-						(uint8_t *)&nv_val, 1);
-	if (ret) {
-		LOG_WRN("Could not read non-volatile register/%u", __LINE__);
-	}
-#endif
 	if (is25xX0xx_get_dummy_clk(cfg->tar_dev_cfg.rx_dummy, &reg_dummy)) {
 		return -ENOTSUP;
 	}
 
-#if 0	
+#if CONFIG_SOC_FAMILY_AMBIQ
 	if (cfg->tar_dev_cfg.addr_length == 4) {
 		LOG_DBG("Enter 4 byte address mode");
 		if (flash_mspi_is25xX0xx_write_enable(flash)) {
 			return -EIO;
 		}
 		if (flash_mspi_is25xX0xx_command_write(flash, SPI_NOR_CMD_4BA,
-							0, 0, 0, NULL, 0)) {
+						       0, 0, 0, NULL, 0)) {
 			return -EIO;
 		}
 	}
 #endif
+
 	if (flash_mspi_is25xX0xx_write_enable(flash)) {
 		return -EIO;
 	}
 
-	if (flash_mspi_is25xX0xx_command_write(flash, IS25XX0XX_WRITE_VOL_REG_CMD,
-					       octal_ddr ? IS25XX0XX_IO_MODE_ADDRESS :
-							  IS25XX0XX_WAIT_CYCLE_ADDRESS,
-					       cfg->serial_cfg.addr_length, 0,
-					       octal_ddr ? &reg_io_mode : &reg_dummy, 1)) {
-		return -EIO;
+	if (octal_ddr) {
+		/* Switch the flash to Octal DDR transaction mode while the
+		 * controller is still using the serial command configuration.
+		 */
+		if (flash_mspi_is25xX0xx_command_write(flash, IS25XX0XX_WRITE_VOL_REG_CMD,
+						       IS25XX0XX_IO_MODE_ADDRESS,
+						       cfg->serial_cfg.addr_length, 0,
+						       &reg_io_mode, 1)) {
+			return -EIO;
+		}
+	} else {
+		if (flash_mspi_is25xX0xx_command_write(flash, IS25XX0XX_WRITE_VOL_REG_CMD,
+						       IS25XX0XX_WAIT_CYCLE_ADDRESS,
+						       cfg->serial_cfg.addr_length, 0,
+						       &reg_dummy, 1)) {
+			return -EIO;
+		}
 	}
 
 	if (mspi_dev_config(cfg->bus, &cfg->dev_id,
@@ -979,8 +979,11 @@ static int flash_mspi_is25xX0xx_init(const struct device *flash)
 	data->dev_cfg = cfg->tar_dev_cfg;
 
 	if (octal_ddr) {
-		wait_cycles[0] = IS25XX0XX_DEFAULT_WAIT_CYCLES;
-		wait_cycles[1] = IS25XX0XX_DEFAULT_WAIT_CYCLES;
+		/* Update wait cycles after both flash and controller are in Octal DDR mode. */
+		uint8_t wait_cycles[] = {
+			IS25XX0XX_DEFAULT_WAIT_CYCLES,
+			IS25XX0XX_DEFAULT_WAIT_CYCLES,
+		};
 
 		if (flash_mspi_is25xX0xx_write_enable(flash)) {
 			return -EIO;
@@ -1023,22 +1026,6 @@ static int flash_mspi_is25xX0xx_init(const struct device *flash)
 	}
 #endif
 
-
-#if 0
-	//Turn to OCTAL DDR Mode
-	if (flash_mspi_is25xX0xx_write_enable(flash)) {
-		return -EIO;
-	}
-
-	/**Enable DDR  */
-	uint8_t io_mode = IS25XX0XX_IO_MODE_OCTAL_DDR;
-	ret = flash_mspi_is25xX0xx_command_write(flash, IS25XX0XX_WRITE_VOL_REG_CMD, 0,
-						cfg->serial_cfg.addr_length, 0,
-						(uint8_t *)&io_mode, 1);
-
-        //Update dummy cycles
-#endif
-
 	release(flash);
 
 	return 0;
@@ -1077,11 +1064,13 @@ static int flash_mspi_is25xX0xx_read_sfdp(const struct device *flash, off_t addr
 
 	if (ret) {
 		LOG_ERR("MSPI read transaction failed with code: %d/%u", ret, __LINE__);
-		return -EIO;
+		ret = -EIO;
+		goto out;
 	}
 
+out:
 	release(flash);
-	return 0;
+	return ret;
 }
 static int flash_mspi_is25xX0xx_read_jedec_id(const struct device *flash, uint8_t *id)
 {
@@ -1097,6 +1086,7 @@ static DEVICE_API(flash, flash_mspi_is25xX0xx_api) = {
 	.write          = flash_mspi_is25xX0xx_write,
 	.read           = flash_mspi_is25xX0xx_read,
 	.get_parameters = flash_mspi_is25xX0xx_get_parameters,
+	.get_size       = flash_mspi_is25xX0xx_get_size,
 #if defined(CONFIG_FLASH_PAGE_LAYOUT)
 	.page_layout    = flash_mspi_is25xX0xx_pages_layout,
 #endif
@@ -1109,11 +1099,12 @@ static DEVICE_API(flash, flash_mspi_is25xX0xx_api) = {
 #define MSPI_DEVICE_CONFIG_SERIAL(n)                                                              \
 	{                                                                                         \
 		.ce_num             = DT_INST_PROP(n, mspi_hardware_ce_num),                      \
-		.freq               = MHZ(1),                                                    \
+		.freq               = 12000000,                                                    \
 		.io_mode            = MSPI_IO_MODE_SINGLE,                                        \
 		.data_rate          = MSPI_DATA_RATE_SINGLE,                                      \
 		.cpp                = MSPI_CPP_MODE_0,                                            \
-		.endian             = MSPI_XFER_BIG_ENDIAN,                                    \
+		.endian             = DT_INST_ENUM_IDX_OR(n, mspi_endian,                        \
+							  MSPI_XFER_LITTLE_ENDIAN),             \
 		.ce_polarity        = MSPI_CE_ACTIVE_LOW,                                         \
 		.dqs_enable         = false,                                                      \
 		.rx_dummy           = 8,                                                          \
@@ -1138,22 +1129,15 @@ static DEVICE_API(flash, flash_mspi_is25xX0xx_api) = {
 	COND_CODE_1(CONFIG_SOC_FAMILY_AMBIQ,                                                      \
 		(MSPI_AMBIQ_PORT(n)), (0))
 
-#define MSPI_XIP_BASE_ADDR(n)                                                                     \
-	COND_CODE_1(DT_NODE_HAS_PROP(DT_INST_BUS(n), xip_base_address),                         \
-		    (DT_PROP_BY_IDX(DT_INST_BUS(n), xip_base_address, 0)), (0))
-
 #define FLASH_MSPI_IS25XX0XX(n)                                                                   \
 	static const struct flash_mspi_is25xX0xx_config flash_mspi_is25xX0xx_config_##n = {       \
 		.mem_size    = DT_INST_PROP(n, size) / 8,                                         \
 		.port        = MSPI_PORT(n),                                                      \
 		.flash_param =                                                                    \
 			{                                                                         \
-				.write_block_size = NOR_WRITE_SIZE,                               \
+				.write_block_size = DT_PROP_OR(DT_DRV_INST(n),                    \
+							 write_block_size, NOR_WRITE_SIZE),       \
 				.erase_value      = NOR_ERASE_VALUE,                              \
-				.page_size        = SPI_NOR_PAGE_SIZE,                            \
-				.sector_size      = IS25XX0XX_BLOCK_SIZE,                         \
-				.num_of_sector    = DT_INST_PROP(n, size) / 8 /                   \
-						    IS25XX0XX_BLOCK_SIZE,                         \
 			},                                                                        \
 		.page_layout =                                                                    \
 			{                                                                         \
@@ -1164,11 +1148,15 @@ static DEVICE_API(flash, flash_mspi_is25xX0xx_api) = {
 		.dev_id             = MSPI_DEVICE_ID_DT_INST(n),                                  \
 		.serial_cfg         = MSPI_DEVICE_CONFIG_SERIAL(n),                               \
 		.tar_dev_cfg        = MSPI_DEVICE_CONFIG_DT_INST(n),                              \
-		.tar_xip_cfg        = MSPI_XIP_CONFIG_DT_INST(n),                                 \
-		.xip_base_addr      = MSPI_XIP_BASE_ADDR(n),                                      \
-		.tar_scramble_cfg   = MSPI_SCRAMBLE_CONFIG_DT_INST(n),                            \
-		.tar_timing_cfg     = MSPI_TIMING_CONFIG(n),                                      \
-		.timing_cfg_mask    = MSPI_TIMING_CONFIG_MASK(n),                                 \
+		MSPI_OPTIONAL_CFG_STRUCT_INIT(CONFIG_MSPI_XIP,                                    \
+					      tar_xip_cfg, MSPI_XIP_CONFIG_DT_INST(n))            \
+		MSPI_XIP_BASE_ADDR_INIT(xip_base_addr, DT_INST_BUS(n))                            \
+		MSPI_OPTIONAL_CFG_STRUCT_INIT(CONFIG_MSPI_SCRAMBLE,                               \
+					      tar_scramble_cfg, MSPI_SCRAMBLE_CONFIG_DT_INST(n))  \
+		MSPI_OPTIONAL_CFG_STRUCT_INIT(CONFIG_MSPI_TIMING,                                 \
+					      tar_timing_cfg, MSPI_TIMING_CONFIG(n))              \
+		MSPI_OPTIONAL_CFG_STRUCT_INIT(CONFIG_MSPI_TIMING,                                 \
+					      timing_cfg_mask, MSPI_TIMING_CONFIG_MASK(n))        \
 		.sw_multi_periph    = DT_PROP(DT_INST_BUS(n), software_multiperipheral),          \
 		.reset_gpio         = GPIO_DT_SPEC_INST_GET_OR(n, reset_gpios, {0}),              \
 		.reset_pulse_us     = DT_INST_PROP_OR(n, t_reset_pulse, 0),                       \

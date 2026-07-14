@@ -73,6 +73,7 @@
 		mspi-cpp-mode = "MSPI_CPP_MODE_0";
 		mspi-endian = "MSPI_BIG_ENDIAN";
 		mspi-ce-polarity = "MSPI_CE_ACTIVE_LOW";
+		write-block-size = <2>;
 		rx-dummy = <16>;
 		tx-dummy = <0>;
 		read-command = <0x7c>;
