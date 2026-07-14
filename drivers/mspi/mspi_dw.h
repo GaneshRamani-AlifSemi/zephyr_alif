@@ -5,6 +5,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
+#ifndef ZEPHYR_DRIVERS_MSPI_MSPI_DW_PRIV_H_
+#define ZEPHYR_DRIVERS_MSPI_MSPI_DW_PRIV_H_
+
 #if DT_HAS_COMPAT_STATUS_OKAY(snps_designware_ssi_v2)
 /*
  * Later versions of the SSI have different register offsets. Define a macro
@@ -271,3 +274,23 @@ static void reg_write(uint32_t data, const struct device *dev, uint32_t off)
 		dev_config->write(data, dev, off); \
 	}
 #endif
+
+#define USES_MEMMAP_WRITE_SUPPORT(inst) + DT_INST_PROP(inst, memmap_write_support)
+#define MEMMAP_WRITE_SUPPORT_INSTANCES \
+	(0 DT_INST_FOREACH_STATUS_OKAY(USES_MEMMAP_WRITE_SUPPORT))
+
+#define USES_CONCURRENT_MEMMAP_SUPPORT(inst) \
+	+ DT_INST_PROP(inst, concurrent_memmap_support)
+#define CONCURRENT_MEMMAP_SUPPORT_INSTANCES \
+	(0 DT_INST_FOREACH_STATUS_OKAY(USES_CONCURRENT_MEMMAP_SUPPORT))
+
+/* XIPSER only needs to be managed on cores that support concurrent memory-mapping (so master
+ * transfers keep running while memory mapping is enabled) and without mem-map-write support,
+ * hence why this register exists for IP's with concurrent mem-map enabled. However, this
+ * driver doesn't yet support the hardware concurrent mem-map feature. Regardless, we still
+ * need to use this register.
+ */
+#define SUPPORTS_XIP_SER (CONCURRENT_MEMMAP_SUPPORT_INSTANCES != 0 && \
+	MEMMAP_WRITE_SUPPORT_INSTANCES == 0)
+
+#endif /* ZEPHYR_DRIVERS_MSPI_MSPI_DW_PRIV_H_ */

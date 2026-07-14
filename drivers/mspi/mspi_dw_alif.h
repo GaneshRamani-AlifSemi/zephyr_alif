@@ -11,8 +11,8 @@
  * and driver private data structures are defined.
  */
 
-#ifndef MSPI_MSPI_DW_ALIF_H_
-#define MSPI_MSPI_DW_ALIF_H_
+#ifndef ZEPHYR_DRIVERS_MSPI_MSPI_DW_ALIF_H_
+#define ZEPHYR_DRIVERS_MSPI_MSPI_DW_ALIF_H_
 
 struct alif_ospi_aes_regs {
 	uint32_t AES_CTRL;
@@ -164,29 +164,10 @@ static inline void alif_xip_update_ctrl(const struct device *dev, struct xip_ctr
 #endif
 }
 
+#if 0
 static inline void alif_xip_prepare_registers(const struct device *dev)
 {
 #if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
-	const struct mspi_dw_data *dev_data = dev->data;
-
-	write_rx_sample_dly(dev, (dev_data->spi_ctrlr0 & SPI_CTRLR0_SPI_RXDS_EN_BIT) ?
-			     0U : dev_data->rx_sample_dly);
-	alif_apply_timing_config(dev);
-
-#if defined(CONFIG_MSPI_DW_DDR)
-	if (alif_ddr_drive_edge(dev) != 0U) {
-		write_txd_drive_edge(dev, alif_ddr_drive_edge(dev));
-	} else if (dev_data->spi_ctrlr0 & (SPI_CTRLR0_SPI_DDR_EN_BIT |
-					   SPI_CTRLR0_INST_DDR_EN_BIT)) {
-		uint32_t txd = (CONFIG_MSPI_DW_TXD_MUL * dev_data->baudr) /
-			       CONFIG_MSPI_DW_TXD_DIV;
-
-		write_txd_drive_edge(dev, txd);
-	} else {
-		write_txd_drive_edge(dev, 0);
-	}
-#endif
-
 	write_xip_mode_bits(dev, 0);
 	write_xip_cnt_time_out(dev, 100);
 #else
@@ -203,7 +184,7 @@ static inline int alif_xip_select(const struct device *dev,
 {
 	uint32_t mask;
 
-	if (dev_id->dev_idx >= 32U) {
+	if (dev_id->dev_idx >= 2U) {
 		return -EINVAL;
 	}
 
@@ -274,4 +255,6 @@ static inline int alif_xip_disable(const struct device *dev,
 }
 #endif
 
-#endif /* MSPI_MSPI_DW_ALIF_H_ */
+#endif /* CONFIG_MSPI_XIP */
+
+#endif /* ZEPHYR_DRIVERS_MSPI_MSPI_DW_ALIF_H_ */

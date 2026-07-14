@@ -44,3 +44,7 @@ properties:
   xip-base-address:
     type: array
     description: XiP memory address range.
+
+  memmap-write-support:
+    type: boolean
+    description: Controller supports memory-mapped write/XiP write registers.

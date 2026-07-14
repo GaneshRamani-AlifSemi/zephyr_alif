@@ -771,7 +771,7 @@ static int flash_mspi_is25xX0xx_erase(const struct device *flash, off_t offset, 
 			goto out;
 		}
 
-		ret = flash_mspi_is25xX0xx_busy_wait(flash, 45000 * 100);
+		ret = flash_mspi_is25xX0xx_busy_wait(flash, 1000 * 100);
 		if (ret) {
 			goto out;
 		}
