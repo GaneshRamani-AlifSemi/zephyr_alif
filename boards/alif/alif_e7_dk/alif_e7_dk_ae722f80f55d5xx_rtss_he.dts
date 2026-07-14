@@ -58,7 +58,7 @@
 };
 
 &ospi1 {
-	compatible = "snps,designware-ssi";
+	compatible = "alif,designware-ssi", "snps,designware-ssi";
 
 	/* External Flash on OSPI */
 	ospi_flash: ospi_flash@0 {

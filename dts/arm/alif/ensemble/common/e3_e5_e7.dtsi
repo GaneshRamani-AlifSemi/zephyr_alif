@@ -199,7 +199,7 @@
 	};
 
 	ospi1: ospi1@83002000 {
-		compatible = "snps,designware-ssi";
+		compatible = "alif,designware-ssi", "snps,designware-ssi";
 		#address-cells = <1>;
 		#size-cells = <0>;
 		reg = <0x83002000 0x1000>;
@@ -212,9 +212,7 @@
 		fifo-depth = <128>;
 		op-mode = "MSPI_CONTROLLER";
 		duplex = "MSPI_FULL_DUPLEX";
-		bus-speed = <100000000>;
 		clock-frequency = <400000000>;
-		cs-pin = <0>;
 		ddr-drive-edge = <1>;
 		rx-ds-delay = <11>;
 		baud2-delay = <2>;

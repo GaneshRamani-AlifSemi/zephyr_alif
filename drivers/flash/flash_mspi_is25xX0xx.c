@@ -309,7 +309,7 @@ static int flash_mspi_is25xX0xx_is_ready(const struct device *flash)
 	uint32_t timeout   = 400; /* max tSSE */
 	int      ret;
 
-	rx_dummy = flash_mspi_is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg) ?
+	rx_dummy = is25xX0xx_is_octal_ddr_cfg(&data->dev_cfg) ?
 			     IS25XX0XX_STATUS_DDR_DUMMY : 0;
 
 	do {
@@ -935,8 +935,7 @@ static int flash_mspi_is25xX0xx_init(const struct device *flash)
 		return -ENOTSUP;
 	}
 
-#if CONFIG_SOC_FAMILY_AMBIQ
-	if (cfg->tar_dev_cfg.addr_length == 4) {
+	if (cfg->tar_dev_cfg.addr_length == 4 && !octal_ddr) {
 		LOG_DBG("Enter 4 byte address mode");
 		if (flash_mspi_is25xX0xx_write_enable(flash)) {
 			return -EIO;
@@ -946,7 +945,6 @@ static int flash_mspi_is25xX0xx_init(const struct device *flash)
 			return -EIO;
 		}
 	}
-#endif
 
 	if (flash_mspi_is25xX0xx_write_enable(flash)) {
 		return -EIO;

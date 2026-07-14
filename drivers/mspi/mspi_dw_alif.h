@@ -11,8 +11,8 @@
  * and driver private data structures are defined.
  */
 
-#ifndef ZEPHYR_DRIVERS_MSPI_MSPI_DW_ALIF_H_
-#define ZEPHYR_DRIVERS_MSPI_MSPI_DW_ALIF_H_
+#ifndef MSPI_MSPI_DW_ALIF_H_
+#define MSPI_MSPI_DW_ALIF_H_
 
 struct alif_ospi_aes_regs {
 	uint32_t AES_CTRL;
@@ -25,6 +25,31 @@ struct alif_ospi_aes_regs {
 	uint32_t AES_RES_2;
 	uint32_t AES_RXDS_DLY;
 };
+
+struct alif_mspi_vendor_data {
+	volatile struct alif_ospi_aes_regs *aes_regs;
+	uint8_t ddr_drive_edge;
+	uint8_t rx_ds_delay;
+	uint8_t baud2_delay;
+};
+
+#define ALIF_SPECIFIC_DATA_DEFINE(inst)						\
+	static const struct alif_mspi_vendor_data mspi_dw_alif_##inst##_vendor_data = {	\
+		.aes_regs = (void *)DT_INST_PROP_BY_IDX(inst, aes_reg, 0),		\
+		.ddr_drive_edge = DT_INST_PROP_OR(inst, ddr_drive_edge, 0),		\
+		.rx_ds_delay = DT_INST_PROP_OR(inst, rx_ds_delay, 0),			\
+		.baud2_delay = DT_INST_PROP_OR(inst, baud2_delay, 0),			\
+	}
+
+#define ALIF_SPECIFIC_DATA_GET(inst) (void *)&mspi_dw_alif_##inst##_vendor_data
+
+static inline const struct alif_mspi_vendor_data *
+alif_vendor_data_get(const struct device *dev)
+{
+	const struct mspi_dw_config *dev_config = dev->config;
+
+	return dev_config->vendor_specific_data;
+}
 
 #define ALIF_AES_CTRL_XIP_EN BIT(4U)
 #define ALIF_AUX_BAUD2_DELAY_MASK BIT(30U)
@@ -79,11 +104,38 @@ static inline void alif_aes_set_baud2_delay(volatile struct alif_ospi_aes_regs *
 #endif
 }
 
+static inline void alif_apply_timing_config(const struct device *dev)
+{
+	const struct alif_mspi_vendor_data *alif_data = alif_vendor_data_get(dev);
+	const struct mspi_dw_data *dev_data = dev->data;
+
+	if (alif_data == NULL || alif_data->aes_regs == NULL) {
+		return;
+	}
+
+	alif_aes_set_rxds_delay(alif_data->aes_regs, alif_data->rx_ds_delay);
+	alif_aes_set_baud2_delay(alif_data->aes_regs, alif_data->baud2_delay,
+				 dev_data->baudr);
+}
+
+static inline uint8_t alif_ddr_drive_edge(const struct device *dev)
+{
+	const struct alif_mspi_vendor_data *alif_data = alif_vendor_data_get(dev);
+
+	return (alif_data != NULL) ? alif_data->ddr_drive_edge : 0U;
+}
+
 #if defined(CONFIG_MSPI_XIP)
-static inline void alif_xip_update_ctrl(const struct mspi_dw_data *dev_data,
-					struct xip_ctrl *ctrl)
+static inline void alif_xip_update_ctrl(const struct device *dev, struct xip_ctrl *ctrl)
 {
 #if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
+	const struct alif_mspi_vendor_data *alif_data = alif_vendor_data_get(dev);
+	const struct mspi_dw_data *dev_data = dev->data;
+
+	if (alif_data == NULL) {
+		return;
+	}
+
 	/*
 	 * Mirror the controller-side settings already selected through
 	 * mspi_dev_config(). On Alif OSPI, the XIP path uses separate XIP
@@ -107,7 +159,7 @@ static inline void alif_xip_update_ctrl(const struct mspi_dw_data *dev_data,
 		ctrl->read |= XIP_CTRL_RXDS_EN_BIT;
 	}
 #else
-	ARG_UNUSED(dev_data);
+	ARG_UNUSED(dev);
 	ARG_UNUSED(ctrl);
 #endif
 }
@@ -115,23 +167,15 @@ static inline void alif_xip_update_ctrl(const struct mspi_dw_data *dev_data,
 static inline void alif_xip_prepare_registers(const struct device *dev)
 {
 #if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
-	const struct mspi_dw_config *dev_config = dev->config;
 	const struct mspi_dw_data *dev_data = dev->data;
 
 	write_rx_sample_dly(dev, (dev_data->spi_ctrlr0 & SPI_CTRLR0_SPI_RXDS_EN_BIT) ?
 			     0U : dev_data->rx_sample_dly);
-
-	if (dev_config->aes_regs != NULL) {
-		volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
-
-		alif_aes_set_rxds_delay(aes, dev_config->rx_ds_delay);
-		alif_aes_set_baud2_delay(aes, dev_config->baud2_delay,
-					 dev_data->baudr);
-	}
+	alif_apply_timing_config(dev);
 
 #if defined(CONFIG_MSPI_DW_DDR)
-	if (dev_config->ddr_drive_edge != 0U) {
-		write_txd_drive_edge(dev, dev_config->ddr_drive_edge);
+	if (alif_ddr_drive_edge(dev) != 0U) {
+		write_txd_drive_edge(dev, alif_ddr_drive_edge(dev));
 	} else if (dev_data->spi_ctrlr0 & (SPI_CTRLR0_SPI_DDR_EN_BIT |
 					   SPI_CTRLR0_INST_DDR_EN_BIT)) {
 		uint32_t txd = (CONFIG_MSPI_DW_TXD_MUL * dev_data->baudr) /
@@ -178,15 +222,17 @@ static inline int alif_xip_enable(const struct device *dev,
 				  const struct mspi_dev_id *dev_id,
 				  const struct mspi_xip_cfg *cfg)
 {
-	const struct mspi_dw_config *dev_config = dev->config;
-	volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
+	const struct alif_mspi_vendor_data *alif_data = alif_vendor_data_get(dev);
+	volatile struct alif_ospi_aes_regs *aes;
 	int ret;
 
 	ARG_UNUSED(cfg);
 
-	if (aes == NULL) {
+	if (alif_data == NULL || alif_data->aes_regs == NULL) {
 		return -ENODEV;
 	}
+
+	aes = alif_data->aes_regs;
 
 	ret = alif_xip_select(dev, dev_id, true);
 	if (ret < 0) {
@@ -202,16 +248,18 @@ static inline int alif_xip_disable(const struct device *dev,
 				   const struct mspi_dev_id *dev_id,
 				   const struct mspi_xip_cfg *cfg)
 {
-	const struct mspi_dw_config *dev_config = dev->config;
 	struct mspi_dw_data *dev_data = dev->data;
-	volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
+	const struct alif_mspi_vendor_data *alif_data = alif_vendor_data_get(dev);
+	volatile struct alif_ospi_aes_regs *aes;
 	int ret;
 
 	ARG_UNUSED(cfg);
 
-	if (aes == NULL) {
+	if (alif_data == NULL || alif_data->aes_regs == NULL) {
 		return -ENODEV;
 	}
+
+	aes = alif_data->aes_regs;
 
 	ret = alif_xip_select(dev, dev_id, false);
 	if (ret < 0) {
@@ -226,4 +274,4 @@ static inline int alif_xip_disable(const struct device *dev,
 }
 #endif
 
-#endif /* ZEPHYR_DRIVERS_MSPI_MSPI_DW_ALIF_H_ */
+#endif /* MSPI_MSPI_DW_ALIF_H_ */

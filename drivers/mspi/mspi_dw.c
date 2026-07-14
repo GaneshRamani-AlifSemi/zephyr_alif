@@ -94,7 +94,6 @@ struct mspi_dw_data {
 struct mspi_dw_config {
 	DEVICE_MMIO_ROM;
 	void *wrapper_regs;
-	void *aes_regs;
 	void (*irq_config)(void);
 	uint32_t clock_frequency;
 #if defined(CONFIG_PINCTRL)
@@ -116,9 +115,6 @@ struct mspi_dw_config {
 	uint8_t dma_tx_data_level;
 	uint8_t dma_rx_data_level;
 #endif
-	uint8_t ddr_drive_edge;
-	uint8_t rx_ds_delay;
-	uint8_t baud2_delay;
 	void *vendor_specific_data;
 	DECLARE_REG_ACCESS();
 	bool sw_multi_periph;
@@ -179,22 +175,14 @@ static uint32_t active_rx_sample_dly(const struct mspi_dw_data *dev_data)
 
 static void apply_timing_config(const struct device *dev)
 {
-	const struct mspi_dw_config *dev_config = dev->config;
 	const struct mspi_dw_data *dev_data = dev->data;
 
 	write_rx_sample_dly(dev, active_rx_sample_dly(dev_data));
-
-	if (dev_config->aes_regs != NULL) {
-		volatile struct alif_ospi_aes_regs *aes = dev_config->aes_regs;
-
-		alif_aes_set_rxds_delay(aes, dev_config->rx_ds_delay);
-		alif_aes_set_baud2_delay(aes, dev_config->baud2_delay,
-					 dev_data->baudr);
-	}
+	vendor_specific_apply_timing_config(dev);
 
 #if defined(CONFIG_MSPI_DW_DDR)
-	if (dev_config->ddr_drive_edge != 0U) {
-		write_txd_drive_edge(dev, dev_config->ddr_drive_edge);
+	if (vendor_specific_ddr_drive_edge(dev) != 0U) {
+		write_txd_drive_edge(dev, vendor_specific_ddr_drive_edge(dev));
 	} else if (dev_data->spi_ctrlr0 & (SPI_CTRLR0_SPI_DDR_EN_BIT |
 					   SPI_CTRLR0_INST_DDR_EN_BIT)) {
 		uint32_t txd = (CONFIG_MSPI_DW_TXD_MUL * dev_data->baudr) /
@@ -1750,7 +1738,7 @@ static int _api_xip_config(const struct device *dev,
 		    !apply_xip_addr_length(dev_data, &ctrl)) {
 			return -EINVAL;
 		}
-		alif_xip_update_ctrl(dev_data, &ctrl);
+		vendor_specific_xip_update_ctrl(dev, &ctrl);
 
 		if (params->rx_dummy > XIP_CTRL_WAIT_CYCLES_MAX ||
 		    params->tx_dummy > XIP_WRITE_CTRL_WAIT_CYCLES_MAX) {
@@ -1779,7 +1767,7 @@ static int _api_xip_config(const struct device *dev,
 		 */
 		write_ctrlr0(dev, dev_data->ctrlr0);
 		write_baudr(dev, dev_data->baudr);
-		alif_xip_prepare_registers(dev);
+		vendor_specific_xip_prepare_registers(dev);
 
 		write_xip_incr_inst(dev, params->read_cmd);
 		write_xip_wrap_inst(dev, params->read_cmd);
@@ -2051,15 +2039,6 @@ static DEVICE_API(mspi, drv_api) = {
 	.dma_rx_data_level =						\
 		DT_INST_PROP_OR(inst, dma_receive_data_level, 0)
 
-#define MSPI_DW_AUX_REGS(inst)						\
-	IF_ENABLED(DT_INST_NODE_HAS_PROP(inst, aes_reg),			\
-		   (.aes_regs = (void *)DT_INST_PROP_BY_IDX(inst, aes_reg, 0),))
-
-#define MSPI_DW_AUX_TIMING(inst)					\
-	.ddr_drive_edge = DT_INST_PROP_OR(inst, ddr_drive_edge, 0),	\
-	.rx_ds_delay = DT_INST_PROP_OR(inst, rx_ds_delay, 0),		\
-	.baud2_delay = DT_INST_PROP_OR(inst, baud2_delay, 0)
-
 #define MSPI_DW_INST(inst)						\
 	PM_DEVICE_DT_INST_DEFINE(inst, dev_pm_action_cb);		\
 	IF_ENABLED(CONFIG_PINCTRL, (PINCTRL_DT_INST_DEFINE(inst);))	\
@@ -2077,12 +2056,10 @@ static DEVICE_API(mspi, drv_api) = {
 		.clock_frequency = MSPI_DW_CLOCK_FREQUENCY(inst),	\
 	IF_ENABLED(CONFIG_PINCTRL,					\
 		(.pcfg = PINCTRL_DT_INST_DEV_CONFIG_GET(inst),))	\
-		MSPI_DW_AUX_REGS(inst)					\
 	IF_ENABLED(DT_INST_NODE_HAS_PROP(inst, ce_gpios),		\
 		(MSPI_DW_CE_GPIOS(inst),))				\
 		MSPI_DW_FIFO_PROPS(inst),				\
 	IF_ENABLED(CONFIG_MSPI_DMA, (MSPI_DW_DMA_DATA_LEVELS(inst),))	\
-		MSPI_DW_AUX_TIMING(inst),				\
 		.vendor_specific_data = VENDOR_SPECIFIC_DATA_GET(inst),	\
 		DEFINE_REG_ACCESS(inst)					\
 		.sw_multi_periph =					\

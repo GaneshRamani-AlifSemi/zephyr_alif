@@ -317,7 +317,15 @@ static inline bool vendor_specific_read_dma_irq(const struct device *dev)
 }
 #endif /*defined(CONFIG_MSPI_DMA)*/
 
-#else /* Supply empty vendor specific macros for generic case */
+#elif DT_HAS_COMPAT_STATUS_OKAY(alif_designware_ssi)
+
+#define VENDOR_SPECIFIC_DATA_DEFINE(inst)					\
+	COND_CODE_1(DT_NODE_HAS_COMPAT(DT_DRV_INST(inst), alif_designware_ssi),	\
+		(ALIF_SPECIFIC_DATA_DEFINE(inst)), ())
+
+#define VENDOR_SPECIFIC_DATA_GET(inst)						\
+	COND_CODE_1(DT_NODE_HAS_COMPAT(DT_DRV_INST(inst), alif_designware_ssi),	\
+		(ALIF_SPECIFIC_DATA_GET(inst)), ((void *)NULL))
 
 static inline void vendor_specific_init(const struct device *dev)
 {
@@ -342,9 +350,9 @@ static inline int vendor_specific_xip_enable(const struct device *dev,
 {
 #if defined(CONFIG_MSPI_XIP) && \
 	(defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO))
-
 	return alif_xip_enable(dev, dev_id, cfg);
 #endif
+
 	ARG_UNUSED(dev);
 	ARG_UNUSED(dev_id);
 	ARG_UNUSED(cfg);
@@ -357,7 +365,6 @@ static inline int vendor_specific_xip_disable(const struct device *dev,
 {
 #if defined(CONFIG_MSPI_XIP) && \
 	(defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO))
-
 	return alif_xip_disable(dev, dev_id, cfg);
 #endif
 
@@ -367,7 +374,116 @@ static inline int vendor_specific_xip_disable(const struct device *dev,
 
 	return 0;
 }
-#endif /* Empty vendor specific macros */
+
+static inline void vendor_specific_apply_timing_config(const struct device *dev)
+{
+#if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
+	alif_apply_timing_config(dev);
+#else
+	ARG_UNUSED(dev);
+#endif
+}
+
+static inline uint8_t vendor_specific_ddr_drive_edge(const struct device *dev)
+{
+#if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
+	return alif_ddr_drive_edge(dev);
+#else
+	ARG_UNUSED(dev);
+
+	return 0U;
+#endif
+}
+
+#if defined(CONFIG_MSPI_XIP)
+static inline void vendor_specific_xip_update_ctrl(const struct device *dev,
+						   struct xip_ctrl *ctrl)
+{
+#if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
+	alif_xip_update_ctrl(dev, ctrl);
+#else
+	ARG_UNUSED(dev);
+	ARG_UNUSED(ctrl);
+#endif
+}
+
+static inline void vendor_specific_xip_prepare_registers(const struct device *dev)
+{
+#if defined(CONFIG_SOC_FAMILY_ENSEMBLE) || defined(CONFIG_SOC_FAMILY_BALLETTO)
+	alif_xip_prepare_registers(dev);
+#else
+	ARG_UNUSED(dev);
+#endif
+}
+#endif
+
+#else /* Supply empty vendor specific functions for generic case */
+
+static inline void vendor_specific_init(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+static inline void vendor_specific_suspend(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+static inline void vendor_specific_resume(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+static inline void vendor_specific_irq_clear(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+
+static inline int vendor_specific_xip_enable(const struct device *dev,
+					     const struct mspi_dev_id *dev_id,
+					     const struct mspi_xip_cfg *cfg)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(dev_id);
+	ARG_UNUSED(cfg);
+
+	return 0;
+}
+static inline int vendor_specific_xip_disable(const struct device *dev,
+					      const struct mspi_dev_id *dev_id,
+					      const struct mspi_xip_cfg *cfg)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(dev_id);
+	ARG_UNUSED(cfg);
+
+	return 0;
+}
+
+static inline void vendor_specific_apply_timing_config(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+
+static inline uint8_t vendor_specific_ddr_drive_edge(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+
+	return 0U;
+}
+
+#if defined(CONFIG_MSPI_XIP)
+static inline void vendor_specific_xip_update_ctrl(const struct device *dev,
+						   struct xip_ctrl *ctrl)
+{
+	ARG_UNUSED(dev);
+	ARG_UNUSED(ctrl);
+}
+
+static inline void vendor_specific_xip_prepare_registers(const struct device *dev)
+{
+	ARG_UNUSED(dev);
+}
+#endif
+
+#endif /* Vendor specific functions */
 
 #if defined(CONFIG_MSPI_DMA)
 static inline void vendor_specific_start_dma_xfer(const struct device *dev)
