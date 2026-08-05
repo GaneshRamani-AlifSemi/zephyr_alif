@@ -1245,6 +1245,53 @@ static int flash_is25wx_ospi_init(const struct device *dev)
 	return ret;
 }
 
+/*
+ * XiP / indirect-op arbitration. The controller cannot serve memory-mapped
+ * XiP reads and indirect command-mode ops at once: an indirect op takes it out
+ * of XiP, so a concurrent read of the XiP window bus-faults. XiP is entered
+ * only at init and no indirect op re-enters it, so the first indirect op after
+ * boot disables the window until reset.
+ *
+ * xip_lock() re-enters XiP and holds the driver's per-op semaphore for the
+ * duration of a memory-mapped read section; every indirect read/write/erase
+ * takes that same semaphore, so they block until xip_unlock(). A blocked
+ * indirect op fails after a bounded timeout rather than hanging. It is a k_sem
+ * (not a thread-owned mutex), so lock and unlock may run on different threads;
+ * the caller must pair exactly one unlock with each successful lock.
+ *
+ * Scope: this arbitrates contexts that share this driver instance (threads and
+ * SMP CPUs on one Zephyr kernel). It does not by itself coordinate two
+ * independent firmware images on separate cores sharing one controller; that
+ * requires application-level hardware-semaphore arbitration.
+ */
+#define XIP_LOCK_ACQUIRE_TIMEOUT_MS 1000
+
+int flash_ospi_is25wx_xip_lock(const struct device *dev)
+{
+	struct alif_flash_ospi_dev_data *dev_data = dev->data;
+	int ret;
+
+	if ((dev_data->ISSI_Flags & FLASH_POWER) == 0U) {
+		ret = -ENODEV;
+	} else {
+		ret = k_sem_take(&dev_data->sem, K_MSEC(XIP_LOCK_ACQUIRE_TIMEOUT_MS));
+		if (ret == 0) {
+			alif_hal_ospi_xip_enable(dev_data->ospi_handle);
+		}
+	}
+
+	return ret;
+}
+
+int flash_ospi_is25wx_xip_unlock(const struct device *dev)
+{
+	struct alif_flash_ospi_dev_data *dev_data = dev->data;
+
+	k_sem_give(&dev_data->sem);
+
+	return 0;
+}
+
 
 #if defined CONFIG_PM_DEVICE
 static int flash_is25wx_ospi_suspend(const struct device *dev)

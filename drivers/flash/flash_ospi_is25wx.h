@@ -81,4 +81,15 @@ struct alif_flash_ospi_dev_data {
 	uint32_t cmd_buf[OSPI_FLASH_CMD_BUF]; /* CMD + DATA Buffer */
 };
 
+/**
+ * XiP / indirect-op arbitration: re-enter memory-mapped XiP mode and hold the
+ * driver's per-op semaphore so indirect ops block for the caller's critical
+ * section. Every indirect read/write/erase takes the same sem, so they wait
+ * until unlock. Not thread-owned - lock and unlock may run on different
+ * threads. Returns 0 on success, -ENODEV if not powered, or the sem-acquire
+ * error; the caller must pair exactly one unlock with each successful lock.
+ */
+int flash_ospi_is25wx_xip_lock(const struct device *dev);
+int flash_ospi_is25wx_xip_unlock(const struct device *dev);
+
 #endif /* __FLASH_ALIF_OSPI_H__ */
