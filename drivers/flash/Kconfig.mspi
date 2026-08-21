@@ -41,6 +41,17 @@ config FLASH_MSPI_IS25XX0XX
 	select FLASH_JESD216
 	select MSPI_AMBIQ_CONTROLLER if SOC_FAMILY_AMBIQ
 
+config FLASH_MSPI_MX66UW
+	bool "MSPI Macronix MX66UW driver"
+	default y
+	depends on DT_HAS_MXICY_MX66UW_MSPI_ENABLED
+	depends on $(dt_compat_on_bus,$(DT_COMPAT_MXICY_MX66UW_MSPI),mspi)
+	select FLASH_MSPI
+	select FLASH_HAS_PAGE_LAYOUT
+	select FLASH_HAS_EXPLICIT_ERASE
+	help
+	  Enable the Macronix MX66UW flash driver over an MSPI controller.
+
 menuconfig FLASH_MSPI_NOR
 	bool "Generic MSPI NOR Flash"
 	default y
