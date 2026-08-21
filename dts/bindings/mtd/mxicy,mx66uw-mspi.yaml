@@ -1,0 +1,25 @@
+# Copyright (C) 2026 Alif Semiconductor.
+# SPDX-License-Identifier: Apache-2.0
+
+description: Macronix MX66UW flash on an MSPI bus
+
+compatible: "mxicy,mx66uw-mspi"
+
+include: [mspi-device.yaml, "jedec,jesd216.yaml"]
+
+properties:
+  write-block-size:
+    type: int
+    description: Minimum write size supported by the flash device
+
+  reset-gpios:
+    type: phandle-array
+    description: RESET line used to reset the flash during initialization
+
+  t-reset-pulse:
+    type: int
+    description: Minimum active RESET pulse duration in microseconds
+
+  t-reset-recovery:
+    type: int
+    description: Flash recovery time after RESET in microseconds
