@@ -55,10 +55,11 @@
 };
 
 &ospi0 {
-	aps512xxn: aps512xxn {
-		compatible = "alif,apmemory-aps512xxn";
+	ospi_ram: psram@0 {
+		compatible = "apmemory,aps512xxn";
+		reg = <0>;
 		size = <DT_SIZE_M(64)>;
-		x16-data-transfer-mode;
+		mspi-max-frequency = <100000000>;
 		latency-code = <4>;
 		status = "disabled";
 	};
