@@ -1,0 +1,23 @@
+# Copyright (c) 2026 Alif Semiconductor
+# SPDX-License-Identifier: Apache-2.0
+
+description: AP Memory APS512XXN Octal DDR pSRAM on an MSPI bus
+
+compatible: "apmemory,aps512xxn"
+
+include: mspi-device.yaml
+
+properties:
+  size:
+    type: int
+    required: true
+    description: Memory size in bytes.
+
+  latency-code:
+    type: int
+    required: true
+    enum: [3, 4, 5, 6, 7]
+    description: |
+      APS512XXN read latency code. Select a value supported at the
+      configured MSPI frequency: 3 up to 66 MHz, 4 up to 109 MHz,
+      5 up to 133 MHz, 6 up to 166 MHz, or 7 up to 200 MHz.
