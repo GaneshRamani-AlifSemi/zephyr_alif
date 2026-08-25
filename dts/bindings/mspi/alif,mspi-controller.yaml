@@ -53,6 +53,12 @@ properties:
     type: boolean
     description: Controller supports memory-mapped write/XiP write registers.
 
+  x16-address-shim:
+    type: boolean
+    description: |
+      Enable the Alif AES-wrapper address remapping required by x16
+      word-addressed Octal PSRAM devices such as APS512XXN.
+
   hyperbus-mode:
     type: boolean
     description: |

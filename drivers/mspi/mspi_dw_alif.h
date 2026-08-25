@@ -32,6 +32,8 @@ struct alif_mspi_vendor_data {
 	uint8_t rx_ds_delay;
 	uint8_t baud2_delay;
 	uint8_t hyperbus_dfs;
+	bool xip_rxds_vl_en;
+	bool x16_address_shim;
 	bool hyperbus_mode;
 };
 
@@ -42,6 +44,8 @@ struct alif_mspi_vendor_data {
 		.rx_ds_delay = DT_INST_PROP_OR(inst, rx_ds_delay, 0),			\
 		.baud2_delay = DT_INST_PROP_OR(inst, baud2_delay, 0),			\
 		.hyperbus_dfs = DT_INST_PROP_OR(inst, hyperbus_dfs, 16),			\
+		.xip_rxds_vl_en = DT_INST_PROP(inst, xip_rxds_vl_en),			\
+		.x16_address_shim = DT_INST_PROP(inst, x16_address_shim),		\
 		.hyperbus_mode = DT_INST_PROP(inst, hyperbus_mode),			\
 	}
 
@@ -57,6 +61,60 @@ alif_vendor_data_get(const struct device *dev)
 
 #define ALIF_AES_CTRL_XIP_EN		BIT(4U)
 #define ALIF_AUX_BAUD2_DELAY_MASK	BIT(30U)
+#define ALIF_XIP_CTRL_RXDS_VL_EN_BIT	BIT(30U)
+
+#define ALIF_AES_ADDR_ARRAY_MASK_POS       0U
+#define ALIF_AES_ADDR_SS0_ARRAY_MODE_POS   18U
+#define ALIF_AES_ADDR_SS1_ARRAY_MODE_POS   19U
+#define ALIF_AES_ADDR_ARRAY_SHIFT_POS      22U
+#define ALIF_AES_ADDR_ARRAY_SPLIT_POS      28U
+
+static inline int alif_configure_x16_address_shim(const struct device *dev,
+						   const struct mspi_dev_cfg *cfg)
+{
+	const struct alif_mspi_vendor_data *data = alif_vendor_data_get(dev);
+	uint32_t value;
+
+	if (data == NULL || data->aes_regs == NULL || !data->x16_address_shim ||
+	    cfg->io_mode != MSPI_IO_MODE_HEX_8_8_16) {
+		return 0;
+	}
+
+	if (cfg->ce_num > 1U) {
+		LOG_ERR("x16 address shim supports only CE0 and CE1");
+		return -EINVAL;
+	}
+
+	/*
+	 * SPI address signalling              Corresponding HADDR/AxADDR bits
+	 *
+	 *  --  RA12 RA4  CA7                       --  23 15  8
+	 *  --  RA11 RA3  CA6                       --  22 14  7
+	 *  --  RA10 RA2  CA5                       --  21 13  6
+	 *  --  RA9  RA1  CA4                       --  20 12  5
+	 *  --  RA8  RA0  CA3                       --  19 11  4
+	 *  --  RA7  --   CA2                       --  18 --  3
+	 * RA14 RA6  CA9  CA1                       25  17 10  2
+	 * RA13 RA5  CA8  CA0 (=0)                  24  16  9  1 (=0)
+	 *
+	 * Insert a gap between CA9 and RA0 by splitting HADDR at bit 11.
+	 * The controller shifts the address down by one in x16 mode because
+	 * each device address selects a 16-bit word rather than a byte:
+	 *
+	 * Logical byte address    Word address    Selected word
+	 * 0x000000                0x000000        First
+	 * 0x000002                0x000001        Second
+	 * 0x000004                0x000002        Third
+	 */
+	value = (0x7FFU << ALIF_AES_ADDR_ARRAY_MASK_POS) |
+		(12U << ALIF_AES_ADDR_ARRAY_SHIFT_POS) |
+		(11U << ALIF_AES_ADDR_ARRAY_SPLIT_POS);
+	value |= cfg->ce_num == 0U ? BIT(ALIF_AES_ADDR_SS0_ARRAY_MODE_POS) :
+		BIT(ALIF_AES_ADDR_SS1_ARRAY_MODE_POS);
+	data->aes_regs->aes_addr_control = value;
+
+	return 0;
+}
 
 static inline void alif_aes_set_rxds_delay(volatile struct alif_ospi_aes_regs *aes,
 					   uint8_t delay)
@@ -129,7 +187,19 @@ static inline int alif_validate_dev_config(const struct device *dev,
 	const struct alif_mspi_vendor_data *data = alif_vendor_data_get(dev);
 	struct mspi_dw_data *dev_data = dev->data;
 
-	if (data == NULL || !data->hyperbus_mode) {
+	if (data == NULL) {
+		return 0;
+	}
+
+	if ((param_mask & MSPI_DEVICE_CONFIG_IO_MODE) != 0U) {
+		int ret = alif_configure_x16_address_shim(dev, cfg);
+
+		if (ret != 0) {
+			return ret;
+		}
+	}
+
+	if (!data->hyperbus_mode) {
 		return 0;
 	}
 
@@ -211,6 +281,10 @@ static inline void alif_xip_update_ctrl(const struct device *dev, struct xip_ctr
 
 	if (dev_data->spi_ctrlr0 & SPI_CTRLR0_SPI_RXDS_EN_BIT) {
 		ctrl->read |= XIP_CTRL_RXDS_EN_BIT;
+	}
+
+	if (data->xip_rxds_vl_en) {
+		ctrl->read |= ALIF_XIP_CTRL_RXDS_VL_EN_BIT;
 	}
 
 	/* TODO: XiP write support ? */
