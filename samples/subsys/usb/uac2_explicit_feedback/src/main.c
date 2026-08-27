@@ -37,10 +37,10 @@ LOG_MODULE_REGISTER(uac2_sample, LOG_LEVEL_INF);
  * when USB host decides to perform rapid terminal enable/disable cycles.
  */
 #define I2S_BUFFERS_COUNT   32//7
-//K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, ROUND_UP(MAX_BLOCK_SIZE, UDC_BUF_GRANULARITY),
-//			 I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
+K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, ROUND_UP(MAX_BLOCK_SIZE, UDC_BUF_GRANULARITY),
+			 I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
 
-K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, 192*2, I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
+//K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, 192*2, I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
 
 struct usb_i2s_ctx {
 	const struct device *i2s_dev;
@@ -68,8 +68,14 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
 	__ASSERT_NO_MSG(microframes == false);
 
 	ctx->terminal_enabled = enabled;
-	if (ctx->i2s_started && !enabled) {
-		i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_DROP);
+	if (!enabled) {
+		int ret = i2s_trigger(ctx->i2s_dev, I2S_DIR_TX,
+				      I2S_TRIGGER_DROP);
+
+		if (ret < 0) {
+			LOG_ERR("I2S DROP failed: %d", ret);
+		}
+
 		ctx->i2s_started = false;
 		ctx->i2s_blocks_written = 0;
 		feedback_reset_ctx(ctx->fb);
@@ -100,7 +106,7 @@ static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 
 	return buf;
 }
-uint32_t test_count;
+
 static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 			      void *buf, uint16_t size, void *user_data)
 {
@@ -126,31 +132,36 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 	LOG_DBG("Received %d data to input terminal %d", size, terminal);
 
 	ret = i2s_write(ctx->i2s_dev, buf, size);
-	if (ret < 0) {
-		ctx->i2s_started = false;
-		ctx->i2s_blocks_written = 0;
-		feedback_reset_ctx(ctx->fb);
+	if (ret == -EIO) {
+		int prepare_ret;
 
-		/* Most likely underrun occurred, prepare I2S restart */
-		i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_PREPARE);
+		/* A TX underrun moves the stream to ERROR. PREPARE returns it
+		 * to READY and releases any blocks still owned by the driver.
+		 */
+		prepare_ret = i2s_trigger(ctx->i2s_dev, I2S_DIR_TX,
+					  I2S_TRIGGER_PREPARE);
+		if (prepare_ret == 0) {
+			ctx->i2s_started = false;
+			ctx->i2s_blocks_written = 0;
+			feedback_reset_ctx(ctx->fb);
 
-		ret = i2s_write(ctx->i2s_dev, buf, size);
-		if (ret < 0) {
-			/* Drop data block, will try again on next frame */
-			k_mem_slab_free(&i2s_tx_slab, buf);
+			/* The failed write did not transfer ownership of buf. */
+			ret = i2s_write(ctx->i2s_dev, buf, size);
+		} else {
+			LOG_ERR("I2S PREPARE failed after write error: %d",
+				prepare_ret);
 		}
 	}
 
-	if (ret == 0) {
-		ctx->i2s_blocks_written++;
-		test_count++;
+	if (ret < 0) {
+		/* The driver did not take ownership on a failed write. */
+		LOG_ERR("I2S write failed: %d", ret);
+		k_mem_slab_free(&i2s_tx_slab, buf);
+		return;
 	}
-	if(test_count == 2)
-	{
-		i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
-		ctx->i2s_started = true;
-		feedback_start(ctx->fb, ctx->i2s_blocks_written);
 
+	if (!ctx->i2s_started && ctx->i2s_blocks_written < UINT8_MAX) {
+		ctx->i2s_blocks_written++;
 	}
 }
 
@@ -247,9 +258,15 @@ static void uac2_sof(const struct device *dev, void *user_data)
 	 */
 	if (!ctx->i2s_started && ctx->terminal_enabled &&
 	    ctx->i2s_blocks_written >= 2) {
-		//i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
-		//ctx->i2s_started = true;
-		feedback_start(ctx->fb, ctx->i2s_blocks_written);
+		int ret = i2s_trigger(ctx->i2s_dev, I2S_DIR_TX,
+				      I2S_TRIGGER_START);
+
+		if (ret == 0) {
+			ctx->i2s_started = true;
+			feedback_start(ctx->fb, ctx->i2s_blocks_written);
+		} else {
+			LOG_ERR("I2S START failed: %d", ret);
+		}
 	}
 }
 
@@ -318,7 +335,7 @@ int main(void)
 	config.frame_clk_freq = SAMPLE_FREQUENCY;
 	config.mem_slab = &i2s_tx_slab;
 	config.block_size = MAX_BLOCK_SIZE;
-	config.timeout = 1000;//0
+	config.timeout = 0;
 
 	ret = i2s_configure(main_ctx.i2s_dev, I2S_DIR_TX, &config);
 	if (ret < 0) {
