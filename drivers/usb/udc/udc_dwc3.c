@@ -1069,91 +1069,145 @@ static void udc_dwc3_depevt_handler(udc_dwc3_driver_t *drv, uint32_t reg)
 		} else {
 			LOG_ERR("some other events");
 		}
-	} else {
+	}
+	else {
 		/* non control ep events */
 		uint32_t cmd_param;
 		switch (event_type) {
+
 		case USB_DEPEVT_XFERINPROGRESS:
-			udc_dwc3_ep_xfer_complete(drv, endp_number);
-			break;
-		case USB_DEPEVT_XFERCOMPLETE:
-			break;
-		case USB_DEPEVT_XFERNOTREADY:
-			/* for Isoc_only */
-			/* Get the frame from event param BIT[31:16] */
-			cmd_param = USB_GET_EVENT_CMD_PARAM(reg);
-			usbd_isoc_micro_frame_update(drv, cmd_param);
-
-			/* If this is an isoc endpoint with a pending TRB
-			 * (prepared but not yet started), issue StartTransfer
-			 * now using the frame number from this event.
-			 */
+		{
+			if (endp_number == 3)
 			{
-				udc_dwc3_ep_t *xnr_ept = &drv->eps[endp_number];
-
-				if (!(xnr_ept->ep_status & USB_EP_BUSY) &&
-				    (xnr_ept->ep_status & USB_EP_ISOC_START_PENDING)) {
-					udc_dwc3_ep_params_t xnr_params = {0};
-					udc_dwc3_trb_t *xnr_trb;
-					uint32_t xnr_cmd;
-					uint32_t frame;
-					int32_t xnr_ret;
-
-					/* Rate-limit: only attempt StartTransfer
-					 * every 8th XferNotReady event (~1ms at HS)
-					 * to avoid starving EP0 processing.
-					 */
-					if (xnr_ept->isoc_start_retries == 0) {
-						CLEAR_BIT(xnr_ept->ep_status,
-							  USB_EP_ISOC_START_PENDING);
-						break;
-					}
-					if ((xnr_ept->isoc_start_retries % 8) != 0) {
-						xnr_ept->isoc_start_retries--;
-						break;
-					}
-					xnr_ept->isoc_start_retries--;
-
-					xnr_trb = &xnr_ept->ep_trb[xnr_ept->trb_dequeue];
-					xnr_params.param1 = (uint32_t)xnr_trb;
-
-					/* Read DSTS for the freshest frame number.
-					 * Only attempt once per event — if Bus Expiry
-					 * occurs, the next XferNotReady event (125us
-					 * later at HS) provides a natural retry without
-					 * blocking the ISR and starving EP0.
-					 */
-					usbd_isoc_micro_frame_update(drv,
-						USB_DSTS_SOFFN(drv->regs->DSTS));
-					frame = drv->micro_frame_number + 4;
-					if (xnr_ept->interval_uframe > 1) {
-						frame = ROUND_UP(frame,
-								 xnr_ept->interval_uframe);
-					}
-
-					xnr_cmd = USB_DEPCMD_STARTTRANSFER;
-					xnr_cmd |= USB_DEPCMD_PARAM(frame & 0x3FFF);
-
-					xnr_ret = udc_dwc3_send_ep_cmd(drv, endp_number,
-								       xnr_cmd, xnr_params);
-					if (xnr_ret >= USB_SUCCESS) {
-						xnr_ept->ep_resource_index =
-							udc_dwc3_get_ep_transfer_resource_index(
-								drv, xnr_ept->ep_index,
-								xnr_ept->ep_dir);
-						SET_BIT(xnr_ept->ep_status, USB_EP_BUSY);
-						CLEAR_BIT(xnr_ept->ep_status,
-							  USB_EP_ISOC_START_PENDING);
-					}
-					/* On failure, counter continues decrementing
-					 * until next eligible attempt or exhaustion.
-					 */
-				}
+			        break;
 			}
-			break;
-		default:
-			break;
+		    udc_dwc3_ep_xfer_complete(drv, endp_number);
+
+		    break;
 		}
+
+		case USB_DEPEVT_XFERCOMPLETE:
+		{
+		    ept = &drv->eps[endp_number];
+
+		    LOG_ERR("EP%u: XFERCOMPLETE STATUS=0x%x PARAM=0x%x",
+		            endp_number,
+		            event_status,
+		            USB_GET_EVENT_CMD_PARAM(reg));
+
+		    udc_dwc3_ep_xfer_complete(drv, endp_number);
+
+		    break;
+		}
+
+
+		case USB_DEPEVT_XFERNOTREADY:
+		{
+		    udc_dwc3_ep_params_t xnr_params = {0};
+		    udc_dwc3_trb_t *xnr_trb;
+
+		    uint32_t frame;
+		    uint32_t xnr_cmd;
+		    int32_t xnr_ret;
+
+		    /*
+		     * cmd_param is already declared at the beginning
+		     * of udc_dwc3_depevt_handler().
+		     */
+		    cmd_param = USB_GET_EVENT_CMD_PARAM(reg);
+
+		    ept = &drv->eps[endp_number];		    /*
+		     * Only start if transfer is pending.
+		     */
+		    if ((ept->ep_status & USB_EP_BUSY) ||
+		        !(ept->ep_status & USB_EP_ISOC_START_PENDING)) {
+		        break;
+		    }
+
+		    xnr_trb = &ept->ep_trb[ept->trb_dequeue];
+
+		    LOG_ERR("EP%u: TRB[%u]=%p",
+		            endp_number,
+		            ept->trb_dequeue,
+		            xnr_trb);
+
+		    LOG_ERR("EP%u: TRB BUF_LOW=0x%08x BUF_HIGH=0x%08x",
+		            endp_number,
+		            xnr_trb->buf_ptr_low,
+		            xnr_trb->buf_ptr_high);
+
+		    LOG_ERR("EP%u: TRB SIZE=0x%08x CTRL=0x%08x",
+		            endp_number,
+		            xnr_trb->size,
+		            xnr_trb->ctrl);
+
+		    /*
+		     * Use XFERNOTREADY frame directly.
+		     */
+		    frame = cmd_param & 0x3FFF;
+
+		    if (ept->interval_uframe > 1) {
+		        frame = ROUND_UP(frame, ept->interval_uframe);
+		    }
+
+		    LOG_ERR("EP%u: XNR frame=0x%x interval=%u",
+		            endp_number,
+		            frame,
+		            ept->interval_uframe);
+
+		    xnr_cmd = USB_DEPCMD_STARTTRANSFER |
+		              USB_DEPCMD_PARAM(frame & 0x3FFF);
+
+		    xnr_params.param1 = (uint32_t)(uintptr_t)xnr_trb;
+
+		    LOG_ERR("EP%u: STARTTRANSFER CMD=0x%08x TRB=%p",
+		            endp_number,
+		            xnr_cmd,
+		            xnr_trb);
+
+		    xnr_ret = udc_dwc3_send_ep_cmd(drv,
+		                                   endp_number,
+		                                   xnr_cmd,
+		                                   xnr_params);
+
+		    LOG_ERR("EP%u: STARTTRANSFER ret=%d",
+		            endp_number,
+		            xnr_ret);
+
+		    if (xnr_ret >= USB_SUCCESS) {
+
+		        ept->ep_resource_index =
+		            udc_dwc3_get_ep_transfer_resource_index(
+		                drv,
+		                ept->ep_index,
+		                ept->ep_dir);
+
+		        SET_BIT(ept->ep_status, USB_EP_BUSY);
+
+		        CLEAR_BIT(ept->ep_status,
+		                  USB_EP_ISOC_START_PENDING);
+
+		        LOG_ERR("EP%u: STARTTRANSFER SUCCESS resource=%u",
+		                endp_number,
+		                ept->ep_resource_index);
+
+		    } else {
+
+		        LOG_ERR("EP%u: STARTTRANSFER FAILED ret=%d",
+		                endp_number,
+		                xnr_ret);
+		    }
+
+		    break;
+		}
+
+
+		default:
+		    break;
+		}
+//		default:
+//			break;
+//		}
 	}
 }
 
@@ -1226,6 +1280,11 @@ static void udc_dwc3_devt_handler(udc_dwc3_driver_t *drv, uint32_t reg)
 		break;
 	case USB_EVENT_EOPF:
 		break;
+	case USB_EVENT_SOF:
+		struct udc_dwc3_data *priv = DWC3DATA(drv);
+	 	//LOG_ERR("DWC3 SOF EVENT");
+    		udc_submit_event(priv->dev, UDC_EVT_SOF, 0);
+    		break;
 	case USB_EVENT_RESET:
 		udc_dwc3_reset_event(drv);
 		if (drv->udc_dwc3_device_reset_cb != NULL) {
@@ -1631,6 +1690,7 @@ static void udc_dwc3_enable_events(udc_dwc3_driver_t *drv)
 	SET_BIT(reg, USB_DEV_CONNECTDONEEVTEN);
 	SET_BIT(reg, USB_DEV_WKUPEVTEN);
 	SET_BIT(reg, USB_DEV_EVENT_ULSTCNGEN);
+	SET_BIT(reg, USB_DEV_SOFTEVTEN);
 	drv->regs->DEVTEN = reg;
 }
 
@@ -3049,3 +3109,4 @@ static const struct udc_api udc_dwc3_api = {
 			&udc_dwc3_api);\
 
 DT_INST_FOREACH_STATUS_OKAY(UDC_DWC3_DEVICE_DEFINE)
+

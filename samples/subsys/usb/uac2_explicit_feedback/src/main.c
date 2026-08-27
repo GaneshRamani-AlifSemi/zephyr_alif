@@ -22,29 +22,25 @@ LOG_MODULE_REGISTER(uac2_sample, LOG_LEVEL_INF);
 
 #define HEADPHONES_OUT_TERMINAL_ID UAC2_ENTITY_ID(DT_NODELABEL(out_terminal))
 
-#define SAMPLE_FREQUENCY    48000
+#define SAMPLE_FREQUENCY    (SAMPLES_PER_SOF * 1000)
 #define SAMPLE_BIT_WIDTH    16
 #define NUMBER_OF_CHANNELS  2
 #define BYTES_PER_SAMPLE    DIV_ROUND_UP(SAMPLE_BIT_WIDTH, 8)
 #define BYTES_PER_SLOT      (BYTES_PER_SAMPLE * NUMBER_OF_CHANNELS)
-
-/* At High-Speed, each microframe (125us) carries ~6 samples.
- * At Full-Speed, each frame (1ms) carries ~48 samples.
- * Use HS sizes since the board overlay enables high-speed.
- */
-#define SAMPLES_PER_INTERVAL  6
-#define MIN_BLOCK_SIZE      ((SAMPLES_PER_INTERVAL - 1) * BYTES_PER_SLOT)
-#define BLOCK_SIZE          (SAMPLES_PER_INTERVAL * BYTES_PER_SLOT)
-#define MAX_BLOCK_SIZE      ((SAMPLES_PER_INTERVAL + 1) * BYTES_PER_SLOT)
+#define MIN_BLOCK_SIZE      ((SAMPLES_PER_SOF - 1) * BYTES_PER_SLOT)
+#define BLOCK_SIZE          (SAMPLES_PER_SOF * BYTES_PER_SLOT)
+#define MAX_BLOCK_SIZE      ((SAMPLES_PER_SOF + 1) * BYTES_PER_SLOT)
 
 /* Absolute minimum is 5 buffers (1 actively consumed by I2S, 2nd queued as next
  * buffer, 3rd acquired by USB stack to receive data to, and 2 to handle SOF/I2S
  * offset errors), but add 2 additional buffers to prevent out of memory errors
  * when USB host decides to perform rapid terminal enable/disable cycles.
  */
-#define I2S_BUFFERS_COUNT   32
-K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, ROUND_UP(MAX_BLOCK_SIZE, UDC_BUF_GRANULARITY),
-			 I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
+#define I2S_BUFFERS_COUNT   32//7
+//K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, ROUND_UP(MAX_BLOCK_SIZE, UDC_BUF_GRANULARITY),
+//			 I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
+
+K_MEM_SLAB_DEFINE_STATIC(i2s_tx_slab, 192*2, I2S_BUFFERS_COUNT, UDC_BUF_ALIGN);
 
 struct usb_i2s_ctx {
 	const struct device *i2s_dev;
@@ -68,11 +64,8 @@ static void uac2_terminal_update_cb(const struct device *dev, uint8_t terminal,
 	 * ignore the terminal variable.
 	 */
 	__ASSERT_NO_MSG(terminal == HEADPHONES_OUT_TERMINAL_ID);
-	/* At High-Speed, microframes is true (125us intervals instead of 1ms) */
-	if (microframes) {
-		LOG_INF("Terminal %d %s (High-Speed microframes)",
-			terminal, enabled ? "enabled" : "disabled");
-	}
+	/* This sample is for Full-Speed only devices. */
+	__ASSERT_NO_MSG(microframes == false);
 
 	ctx->terminal_enabled = enabled;
 	if (ctx->i2s_started && !enabled) {
@@ -91,9 +84,6 @@ static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 	void *buf = NULL;
 	int ret;
 
-	LOG_WRN("USB RX buff [%u] %u, %u", ctx->terminal_enabled, size, terminal);
-
-
 	if (terminal == HEADPHONES_OUT_TERMINAL_ID) {
 		__ASSERT_NO_MSG(size <= MAX_BLOCK_SIZE);
 
@@ -110,14 +100,12 @@ static void *uac2_get_recv_buf(const struct device *dev, uint8_t terminal,
 
 	return buf;
 }
-
+uint32_t test_count;
 static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 			      void *buf, uint16_t size, void *user_data)
 {
 	struct usb_i2s_ctx *ctx = user_data;
 	int ret;
-
-	LOG_WRN("USB RX [%u] %u, %u", ctx->terminal_enabled, size, terminal);
 
 	if (!ctx->terminal_enabled) {
 		k_mem_slab_free(&i2s_tx_slab, buf);
@@ -132,10 +120,10 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 		 */
 		size = BLOCK_SIZE;
 		memset(buf, 0, size);
-		sys_cache_data_flush_range(buf, size);
+		//sys_cache_data_flush_range(buf, size);
 	}
 
-	//LOG_WRN("Received %d data to input terminal %d", size, terminal);
+	LOG_DBG("Received %d data to input terminal %d", size, terminal);
 
 	ret = i2s_write(ctx->i2s_dev, buf, size);
 	if (ret < 0) {
@@ -155,6 +143,14 @@ static void uac2_data_recv_cb(const struct device *dev, uint8_t terminal,
 
 	if (ret == 0) {
 		ctx->i2s_blocks_written++;
+		test_count++;
+	}
+	if(test_count == 2)
+	{
+		i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
+		ctx->i2s_started = true;
+		feedback_start(ctx->fb, ctx->i2s_blocks_written);
+
 	}
 }
 
@@ -162,8 +158,6 @@ static void uac2_buf_release_cb(const struct device *dev, uint8_t terminal,
 				void *buf, void *user_data)
 {
 	/* This sample does not send audio data so this won't be called */
-
-	LOG_WRN("USB RX rel [%u]", terminal);
 }
 
 /* Variables for debug use to facilitate simple how feedback value affects
@@ -252,9 +246,9 @@ static void uac2_sof(const struct device *dev, void *user_data)
 	 *   OUT DATA0 n+3 received from host
 	 */
 	if (!ctx->i2s_started && ctx->terminal_enabled &&
-	    ctx->i2s_blocks_written >= 16) {
-		i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
-		ctx->i2s_started = true;
+	    ctx->i2s_blocks_written >= 2) {
+		//i2s_trigger(ctx->i2s_dev, I2S_DIR_TX, I2S_TRIGGER_START);
+		//ctx->i2s_started = true;
 		feedback_start(ctx->fb, ctx->i2s_blocks_written);
 	}
 }
@@ -273,42 +267,44 @@ static struct usb_i2s_ctx main_ctx;
 int main(void)
 {
 	const struct device *dev = DEVICE_DT_GET(DT_NODELABEL(uac2_headphones));
+	const struct device *codec_dev = DEVICE_DT_GET(DT_NODELABEL(wm8904));
 	struct usbd_context *sample_usbd;
+	struct audio_codec_cfg audio_cfg;
 	struct i2s_config config;
 	int ret;
 
-	const struct device *codec_dev = DEVICE_DT_GET(DT_ALIAS(audio_codec));
+	main_ctx.i2s_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_tx));
 
 	if (!device_is_ready(codec_dev)) {
-		printk("%s is not ready\n", codec_dev->name);
-		return 0;
-	}
+		        LOG_ERR("%s is not ready", codec_dev->name);
+		        return 0;
+		    }
 
-	/* Configure codec */
-	struct audio_codec_cfg codec_cfg = {
-		.dai_type = AUDIO_DAI_TYPE_I2S,
-		.dai_cfg = {
-			.i2s = {
-				.word_size = SAMPLE_BIT_WIDTH,
-				.channels = NUMBER_OF_CHANNELS,
-				.format = I2S_FMT_DATA_FORMAT_I2S,
-				.options = 0,
-				.frame_clk_freq = SAMPLE_FREQUENCY,
-				.mem_slab = NULL,
-				.block_size = 0,
-				.timeout = 0,
-			},
-		},
-	};
+		memset(&audio_cfg, 0, sizeof(audio_cfg));
 
-	ret = audio_codec_configure(codec_dev, &codec_cfg);
-	if (ret) {
-		LOG_ERR("Failed to configure sink codec. err %d", ret);
-		return ret;
-	}
-	audio_codec_start_output(codec_dev);
+		    audio_cfg.dai_route = AUDIO_ROUTE_PLAYBACK;
+		    audio_cfg.dai_type = AUDIO_DAI_TYPE_I2S;
 
-	main_ctx.i2s_dev = DEVICE_DT_GET(DT_NODELABEL(i2s_tx));
+		    audio_cfg.dai_cfg.i2s.word_size = SAMPLE_BIT_WIDTH;
+		    audio_cfg.dai_cfg.i2s.channels = NUMBER_OF_CHANNELS;
+		    audio_cfg.dai_cfg.i2s.format = I2S_FMT_DATA_FORMAT_I2S;
+
+		    audio_cfg.dai_cfg.i2s.options =
+		        I2S_OPT_BIT_CLK_MASTER |
+		        I2S_OPT_FRAME_CLK_MASTER;
+
+		    audio_cfg.dai_cfg.i2s.frame_clk_freq = SAMPLE_FREQUENCY;
+		    audio_cfg.dai_cfg.i2s.mem_slab = &i2s_tx_slab;
+		    audio_cfg.dai_cfg.i2s.block_size = MAX_BLOCK_SIZE;
+
+		    ret = audio_codec_configure(codec_dev, &audio_cfg);
+
+		    if (ret < 0) {
+		        LOG_ERR("Codec configure failed: %d", ret);
+		        return ret;
+		    }
+
+
 
 	if (!device_is_ready(main_ctx.i2s_dev)) {
 		printk("%s is not ready\n", main_ctx.i2s_dev->name);
@@ -322,7 +318,7 @@ int main(void)
 	config.frame_clk_freq = SAMPLE_FREQUENCY;
 	config.mem_slab = &i2s_tx_slab;
 	config.block_size = MAX_BLOCK_SIZE;
-	config.timeout = 0;
+	config.timeout = 1000;//0
 
 	ret = i2s_configure(main_ctx.i2s_dev, I2S_DIR_TX, &config);
 	if (ret < 0) {
