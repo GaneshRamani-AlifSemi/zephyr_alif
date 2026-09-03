@@ -1,0 +1,30 @@
+# Copyright (c) 2026 Alif Semiconductor
+#
+# SPDX-License-Identifier: Apache-2.0
+
+description: Infineon S80KS2564 HyperRAM on ALIF Hex-SPI(DW-SSI) bus
+
+compatible: "alif,infineon-s80ks2564"
+
+include: base.yaml
+
+properties:
+  size:
+    type: int
+    description: |
+      The RAM size in bits.
+
+  latency:
+    type: int
+    description: |
+      The RAM wait cycle.
+
+  rxd-signal-delay:
+    type: int
+    description: |
+      RXD signal delay value tunable for high-speed transactions.
+
+  reset-gpios:
+    type: phandle-array
+    description: |
+      The RESETn pin to be toggled to reset memory.
