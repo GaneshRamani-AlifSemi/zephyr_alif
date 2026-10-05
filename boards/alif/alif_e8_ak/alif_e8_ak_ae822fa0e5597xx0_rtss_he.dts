@@ -71,6 +71,17 @@
 &ospi1 {
 	xip-wait-cycles = <10>;
 
+	/* signal-delay for Highspeed transaction */
+	txd-delays = <0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0>;
+	rxd-delays = <0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0>;
+	ssi-oe-n-delays = <0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0>;
+	rx-ds-delays = <0 0>;
+	txd-dm-delays = <0 0>;
+	dm-oe-n-delays = <0 0>;
+	ss-n-delays = <0 0>;
+	sclk-delay = <0>;
+	sclkn-delay = <0>;
+
 	/* External Flash on OSPI */
 	ospi_flash: ospi_flash@0 {
 		compatible = "mxicy,mx66uw-flash";
@@ -86,7 +97,7 @@
 		#size-cells = <1>;
 
 		/* wait cycles based on bus speed*/
-		def-wait-cycle = <5>;
+		def-wait-cycle = <10>;
 		read-wait-cycle = <10>;
 
 		flash_storage: flash_storage@0 {
