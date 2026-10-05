@@ -29,6 +29,8 @@ LOG_MODULE_REGISTER(OSPI_FLASH, CONFIG_FLASH_LOG_LEVEL);
 
 static void flash_alif_ospi_irq_config_func(const struct device *dev);
 
+#include "../alif_ospi_signal_delays.h"
+
 static int get_dfs(int block_size)
 {
 	switch (block_size) {
@@ -60,6 +62,9 @@ static inline int32_t err_map_alif_hal_to_zephyr(int32_t err)
 		break;
 	case OSPI_ERR_CTRL_BUSY:
 		e_code = -EBUSY;
+		break;
+	case OSPI_ERR_UNSUPPORTED:
+		e_code = -ENOTSUP;
 		break;
 	default:
 		e_code = -EIO;
@@ -1102,6 +1107,14 @@ static int flash_is25wx_ospi_init(const struct device *dev)
 		ret = err_map_alif_hal_to_zephyr(ret);
 		return ret;
 	}
+#if OSPI_HAS_SIGNAL_DELAYS
+	ret = alif_hal_ospi_apply_signal_delays(dev_data->ospi_handle, &signal_delays);
+	if (ret != OSPI_ERR_NONE) {
+		LOG_ERR("Failed to apply OSPI signal delays (%d)", ret);
+		alif_hal_ospi_deinit(dev_data->ospi_handle);
+		return err_map_alif_hal_to_zephyr(ret);
+	}
+#endif
 	/* Initialize Configuration */
 	ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
 	if (ret != 0) {

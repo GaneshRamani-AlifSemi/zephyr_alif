@@ -21,7 +21,7 @@ LOG_MODULE_REGISTER(OSPI_FLASH, CONFIG_FLASH_LOG_LEVEL);
 #define OSPI_FLASH_NODE		DT_NODELABEL(ospi_flash)
 #define OSPI_CTRL_NODE		DT_PARENT(OSPI_FLASH_NODE)
 
-#include "flash_alif_ospi_signal_delays.h"
+#include "../alif_ospi_signal_delays.h"
 
 #define OSPI_AES_REG_NODE_NAME	aes_reg
 
