@@ -86,7 +86,7 @@
 		#size-cells = <1>;
 
 		/* wait cycles based on bus speed*/
-		def-wait-cycle = <5>;
+		def-wait-cycle = <10>;
 		read-wait-cycle = <10>;
 
 		flash_storage: flash_storage@0 {

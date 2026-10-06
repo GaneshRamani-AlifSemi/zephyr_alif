@@ -28,6 +28,8 @@ LOG_MODULE_REGISTER(OSPI_FLASH, CONFIG_FLASH_LOG_LEVEL);
 #define ADDR_IS_SEC_ALIGNED(addr, _bits)	((addr)&BIT_MASK(_bits))
 #define FLASH_SEC_SIZE_BIT			12
 
+#define MX_DUMMY_CYCLES_TO_REG_VALUE(cycles) ((20U - (cycles)) / 2U)
+
 static void flash_alif_ospi_irq_config_func(const struct device *dev);
 
 static int get_dfs(int block_size)
@@ -320,12 +322,14 @@ static int set_dtr_ospi_mode(struct mx_flash_ospi_dev_data *dev_data)
 static int update_dummy_cycle(struct mx_flash_ospi_dev_data *dev_data, int dummy_cyl)
 {
 	uint32_t cmd_buff[4];
+	uint32_t dummy_cyl_reg_val = MX_DUMMY_CYCLES_TO_REG_VALUE(dummy_cyl);
 	int ret;
 
 	/**Prepare command and config */
 	cmd_buff[0] = MX_OSPI_WRCR2_CMD;
 	cmd_buff[1] = MX_CONF_REG2_DUMMY_CYL_ADDR;
-	cmd_buff[2] = ((dummy_cyl << 8) | 0x0);   /*shift value byte :16-bit*/
+	/* Repeat the CR2 dummy-cycle in both bytes of the DTR data frame.*/
+	cmd_buff[2] = (dummy_cyl_reg_val << 8) | dummy_cyl_reg_val;
 
 	dev_data->trans_conf.addr_len = OSPI_ADDR_LENGTH_32_BITS;
 	dev_data->trans_conf.wait_cycles = 0;

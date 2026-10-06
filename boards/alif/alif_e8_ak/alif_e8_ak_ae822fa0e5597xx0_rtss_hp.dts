@@ -86,7 +86,7 @@
 		write-block-size = <2>;
 
 		/* wait cycles based on bus speed*/
-		def-wait-cycle = <5>;
+		def-wait-cycle = <10>;
 		read-wait-cycle = <10>;
 
 		/* Flash Size 128MB */
