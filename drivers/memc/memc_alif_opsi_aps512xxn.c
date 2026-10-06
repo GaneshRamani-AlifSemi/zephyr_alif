@@ -391,8 +391,8 @@ static int memc_alif_ospi_aps512xxn_init(const struct device *dev)
 		return ret;
 	}
 
-	/* config read wait cycles, variable latency */
-	reg_value = (0x0 << APS512XXN_MODE_REG0_LATENCY_TYPE |
+	/* Fixed read latency uses twice the configured latency clocks. */
+	reg_value = (0x1 << APS512XXN_MODE_REG0_LATENCY_TYPE |
 			(config->latency_code - 3) << APS512XXN_MODE_REG0_READ_LATENCY_CODE |
 			 0x0 << APS512XXN_MODE_REG0_DRIVE_STR);
 	ret = aps512xxn_write_reg(dev, APS256XXN_MODE_REG0_ADDR, reg_value);
@@ -428,7 +428,9 @@ static int memc_alif_ospi_aps512xxn_init(const struct device *dev)
 	aps512xxn_xip_cfg.write_incr_cmd = APS256XXN_CMD_LINEAR_BURST_WRITE;
 	aps512xxn_xip_cfg.write_wrap_cmd = APS256XXN_CMD_SYNC_WRITE;
 	aps512xxn_xip_cfg.xip_cnt_time_out = config->xip_wait_cycles;
-	aps512xxn_xip_cfg.xip_wait_cycles = config->latency_code - 1;
+	aps512xxn_xip_cfg.xip_wait_cycles = 2 * config->latency_code - 1;
+	aps512xxn_xip_cfg.xip_write_wait_cycles = config->latency_code - 1;
+	aps512xxn_xip_cfg.xip_rxds_vl_en = 0;
 
 	/* OSPI xip configuration */
 	ospi_psram_xip_init(config->regs, &aps512xxn_xip_cfg, config->dual_octal);
