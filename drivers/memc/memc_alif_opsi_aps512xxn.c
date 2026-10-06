@@ -21,6 +21,9 @@ LOG_MODULE_REGISTER(memc_alif_aps512xxn, CONFIG_MEMC_LOG_LEVEL);
 #define DEVICE_NODE DT_NODELABEL(aps512xxn)
 #define CONTROLLER_NODE  DT_PARENT(DEVICE_NODE)
 
+#define OSPI_CTRL_NODE CONTROLLER_NODE
+#include "alif_ospi_signal_delays.h"
+
 /* APS256XXN Device ID */
 #define APS256XXN_ID                           0xDE
 
@@ -110,6 +113,9 @@ static int32_t err_map_alif_hal_to_zephyr(int32_t err)
 		break;
 	case OSPI_ERR_CTRL_BUSY:
 		err_code = -EBUSY;
+		break;
+	case OSPI_ERR_UNSUPPORTED:
+		err_code = -ENOTSUP;
 		break;
 	default:
 		err_code = -EIO;
@@ -325,6 +331,15 @@ static int memc_alif_ospi_aps512xxn_init(const struct device *dev)
 		return ret;
 	}
 
+#if OSPI_HAS_SIGNAL_DELAYS
+	ret = alif_hal_ospi_apply_signal_delays(data->ospi_handle, &signal_delays);
+	if (ret != OSPI_ERR_NONE) {
+		LOG_ERR("Failed to apply OSPI signal delays (%d)", ret);
+		alif_hal_ospi_deinit(data->ospi_handle);
+		return err_map_alif_hal_to_zephyr(ret);
+	}
+#endif
+
 	/* Common OSPI transfer settings for RAM */
 	data->trans_conf.frame_size = APS256XXN_OSPI_DFS;
 	data->trans_conf.frame_format = OSPI_FRF_OCTAL;
@@ -465,7 +480,10 @@ static int memc_alif_ospi_aps512xxn_init(const struct device *dev)
 		aes_ctrl_xip_addr(config->aes_regs, &ram_addr_ctrl);
 	}
 
+#if !OSPI_HAS_SIGNAL_DELAYS
+	/* Preserve calibrated RXDS delays when a per-signal configuration is present. */
 	aes_set_rxds_delay(config->aes_regs, config->rxds_delay);
+#endif
 
 	aes_enable_xip(config->aes_regs);
 
