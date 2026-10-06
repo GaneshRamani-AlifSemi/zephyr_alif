@@ -2,8 +2,8 @@
  * Copyright (C) 2026 Alif Semiconductor.
  * SPDX-License-Identifier: Apache-2.0
  */
-#ifndef ZEPHYR_DRIVERS_FLASH_ALIF_OSPI_SIGNAL_DELAYS_H_
-#define ZEPHYR_DRIVERS_FLASH_ALIF_OSPI_SIGNAL_DELAYS_H_
+#ifndef ZEPHYR_DRIVERS_MEMC_ALIF_OSPI_SIGNAL_DELAYS_H_
+#define ZEPHYR_DRIVERS_MEMC_ALIF_OSPI_SIGNAL_DELAYS_H_
 
 #include <zephyr/devicetree.h>
 #include <zephyr/sys/util.h>
@@ -102,4 +102,4 @@ static const struct ospi_signal_delay_config signal_delays = {
 };
 #endif
 
-#endif /* ZEPHYR_DRIVERS_FLASH_ALIF_OSPI_SIGNAL_DELAYS_H_ */
+#endif /* ZEPHYR_DRIVERS_MEMC_ALIF_OSPI_SIGNAL_DELAYS_H_ */

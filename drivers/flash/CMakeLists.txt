@@ -23,6 +23,10 @@ zephyr_library_sources_ifdef(CONFIG_FLASH_SHELL flash_shell.c)
 zephyr_library_sources_ifdef(CONFIG_USERSPACE flash_handlers.c)
 # zephyr-keep-sorted-stop
 
+if(CONFIG_OSPI_FLASH_MX66UW)
+  zephyr_library_include_directories(${ZEPHYR_BASE}/drivers/memc)
+endif()
+
 # zephyr-keep-sorted-start
 zephyr_library_sources_ifdef(CONFIG_FLASH_AMBIQ flash_ambiq.c)
 zephyr_library_sources_ifdef(CONFIG_FLASH_ANDES_QSPI flash_andes_qspi.c)
