@@ -21,6 +21,8 @@ LOG_MODULE_REGISTER(OSPI_FLASH, CONFIG_FLASH_LOG_LEVEL);
 #define OSPI_FLASH_NODE		DT_NODELABEL(ospi_flash)
 #define OSPI_CTRL_NODE		DT_PARENT(OSPI_FLASH_NODE)
 
+#include "alif_ospi_signal_delays.h"
+
 #define OSPI_AES_REG_NODE_NAME	aes_reg
 
 #define ADDR_IS_SEC_ALIGNED(addr, _bits)	((addr)&BIT_MASK(_bits))
@@ -59,6 +61,9 @@ static inline int32_t err_map_alif_hal_to_zephyr(int32_t err)
 		break;
 	case OSPI_ERR_CTRL_BUSY:
 		e_code = -EBUSY;
+		break;
+	case OSPI_ERR_UNSUPPORTED:
+		e_code = -ENOTSUP;
 		break;
 	default:
 		e_code = -EIO;
@@ -871,6 +876,15 @@ static int flash_mx66uw_ospi_init(const struct device *dev)
 		ret = err_map_alif_hal_to_zephyr(ret);
 		return ret;
 	}
+
+#if OSPI_HAS_SIGNAL_DELAYS
+	ret = alif_hal_ospi_apply_signal_delays(dev_data->ospi_handle, &signal_delays);
+	if (ret != OSPI_ERR_NONE) {
+		LOG_ERR("Failed to apply OSPI signal delays (%d)", ret);
+		alif_hal_ospi_deinit(dev_data->ospi_handle);
+		return err_map_alif_hal_to_zephyr(ret);
+	}
+#endif
 
 	/* Initialize Configuration */
 	ret = alif_hal_ospi_prepare_transfer(dev_data->ospi_handle, &dev_data->trans_conf);
